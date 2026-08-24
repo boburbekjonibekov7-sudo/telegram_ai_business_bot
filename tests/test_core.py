@@ -1,0 +1,71 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+
+from ai_providers import AIService
+from storage import JsonStore
+from telegram_api import TelegramBotApi
+
+
+class StorageTests(unittest.TestCase):
+    def test_history_is_limited_and_resettable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JsonStore(Path(directory), max_history_messages=2)
+            store.append("business:c:1", "user", "salom")
+            store.append("business:c:1", "assistant", "assalom")
+            store.append("business:c:1", "user", "yana savol")
+            history = store.history("business:c:1", "system")
+            self.assertEqual(
+                history,
+                [
+                    {"role": "system", "content": "system"},
+                    {"role": "assistant", "content": "assalom"},
+                    {"role": "user", "content": "yana savol"},
+                ],
+            )
+            store.clear("business:c:1")
+            self.assertEqual(store.history("business:c:1", "system"), [{"role": "system", "content": "system"}])
+
+
+class ProviderSelectionTests(unittest.TestCase):
+    def _settings(self, provider: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            ai_provider=provider,
+            openai_api_key="openai-key",
+            qwen_api_key="qwen-key",
+            openai_base_url="https://api.openai.com/v1",
+            qwen_base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            openai_model="gpt-4o-mini",
+            qwen_model="qwen-plus",
+        )
+
+    def test_auto_prefers_openai_then_qwen(self) -> None:
+        service = AIService(self._settings("auto"))
+        self.assertEqual(service._provider_order(), ["openai", "qwen"])
+
+    def test_explicit_qwen(self) -> None:
+        service = AIService(self._settings("qwen"))
+        self.assertEqual(service._provider_order(), ["qwen"])
+
+
+class TelegramPayloadTests(unittest.TestCase):
+    def test_business_send_payload_contains_connection_id(self) -> None:
+        bot = TelegramBotApi("dummy")
+        captured = {}
+
+        def fake_call(method, payload):
+            captured["method"] = method
+            captured["payload"] = payload
+            return {"message_id": 1}
+
+        bot._call_sync = fake_call  # type: ignore[method-assign]
+        result = bot._call_sync("sendMessage", {"chat_id": 1, "text": "ok", "business_connection_id": "bc"})
+        self.assertEqual(result["message_id"], 1)
+        self.assertEqual(captured["payload"]["business_connection_id"], "bc")
+
+
+if __name__ == "__main__":
+    unittest.main()
