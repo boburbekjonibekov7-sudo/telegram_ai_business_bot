@@ -50,7 +50,7 @@ class Settings:
         if not bot_token:
             raise ValueError("BOT_TOKEN .env faylida ko‘rsatilmagan")
 
-        provider = os.getenv("AI_PROVIDER", "auto").strip().lower()
+        provider = os.getenv("AI_PROVIDER", "openai").strip().lower()
         if provider not in {"auto", "openai", "qwen"}:
             raise ValueError("AI_PROVIDER faqat auto, openai yoki qwen bo‘lishi kerak")
 
