@@ -163,6 +163,15 @@ class BusinessAiBot:
         argument = parts[1].strip() if len(parts) == 2 else ""
         reply_to = message.get("message_id")
 
+        if command == "/start":
+            await self._send_chunks(
+                chat_id,
+                "Salom! Men Telegram Business chatlaringizga Manus AI yordamida javob beraman.\n\nAdmin panel: /admin\nAI roli: /rol\nTelegram ID: /id",
+                None,
+                reply_to,
+            )
+            return True
+
         if command == "/id":
             sender_id = (message.get("from") or {}).get("id")
             await self._send_chunks(chat_id, f"Sizning Telegram user ID: {sender_id}", None, reply_to)

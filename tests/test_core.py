@@ -222,6 +222,12 @@ class AdminPanelAndApkTests(unittest.TestCase):
         bot.connections["bc-1"] = {"id": "bc-1", "is_enabled": True, "rights": {"can_reply": True}}
         return bot
 
+    def test_start_is_immediate_and_not_ai_or_pause(self) -> None:
+        bot = self._bot()
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 8645314130}, "from": {"id": 8645314130}, "text": "/start"}}))
+        self.assertIn("Salom!", bot.telegram.sent[-1]["text"])
+        self.assertIn("/admin", bot.telegram.sent[-1]["text"])
+
     def test_admin_panel_is_only_available_to_admin(self) -> None:
         bot = self._bot()
         asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 9}, "from": {"id": 123}, "text": "/admin"}}))
