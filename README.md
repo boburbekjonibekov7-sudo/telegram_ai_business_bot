@@ -8,7 +8,7 @@ GitHub’dagi `manhwa_bot` repositoriyasi bu loyiha uchun faqat reference sifati
 
 Vercel `api/index.py` faylini ASGI endpoint sifatida ishga tushiradi. Telegram webhook orqali kelgan `business_message` update’lari secret path va `X-Telegram-Bot-Api-Secret-Token` header orqali tekshiriladi. Dastur `business_connection_id`, `chat_id` va `can_reply` huquqini tekshiradi, Manus v2 task yaratib statusni polling orqali kutadi yoki OpenAI/Qwen’ga xabar yuboradi va javobni Telegram `sendMessage` metodi orqali profil nomidan jo‘natadi.
 
-Vercel serverless instance’lari doimiy disk sifatida ishlatilmaydi. Shu sababli `memory_store.py` tarixni faqat faol instance xotirasida saqlaydi; instance almashtirilsa suhbat konteksti yo‘qolishi mumkin. Doimiy suhbat tarixi zarur bo‘lsa, keyingi bosqichda Redis yoki Postgres adapterini ulash kerak. Credentiallar va secretlar hech qachon repositoryga yozilmaydi.
+Vercel serverless instance’lari doimiy disk sifatida ishlatilmaydi. `DATABASE_URL` mavjud bo‘lsa, `postgres_store.py` Neon PostgreSQL’da `/rol`, suhbat tarixi va owner pause holatini saqlaydi; shu sababli instance almashtirilishi yoki yangi deployment suhbat ma’lumotlarini o‘chirmaydi. DATABASE_URL bo‘lmagan lokal rejimda JSON yoki memory fallback ishlaydi. Credentiallar va secretlar hech qachon repositoryga yozilmaydi.
 
 ## Telegram talabi
 
@@ -26,7 +26,7 @@ Bot @BotFather’da Business Mode yoki profile Chat Automation bilan ishlashga r
 | `app.py` | Telegram Business update’larini qayta ishlash va AI javob oqimi |
 | `telegram_api.py` | Telegram Bot API HTTP klienti |
 | `ai_providers.py` | Manus v2 task adapteri, OpenAI/Qwen klientlari va fallback |
-| `memory_store.py` | Vercel uchun vaqtinchalik xotira storage’i |
+| `memory_store.py` | Fallback sifatida vaqtinchalik xotira storage’i |
 | `storage.py` | Lokal ishlashda JSON suhbat storage’i |
 | `pause_store.py` | Optional Upstash Redis REST orqali durable owner-pause storage’i |
 | `postgres_pause_store.py` | Neon PostgreSQL orqali durable owner-pause storage’i |
@@ -117,7 +117,7 @@ Bot har bir Business chatni alohida kuzatadi. Agar akkaunt egasi userga qo‘lda
 
 Buyruqlarni mijoz chatiga emas, botning o‘z shaxsiy chatiga yuboring. `/id` Telegram user ID’ingizni ko‘rsatadi. `/rol Siz muloyim, qisqa va faqat o‘zbek tilida javob beradigan yordamchisiz.` buyrug‘i keyingi Business xabarlarga qo‘llanadigan AI uslubini saqlaydi. `/rol` joriy rolni ko‘rsatadi, `/rol reset` esa standart rolga qaytaradi. `/role` inglizcha alias sifatida ham ishlaydi.
 
-Xavfsizlik uchun `/rol` faqat `ADMIN_USER_ID` ga mos user yoki faol Business ulanishining akkaunt egasi tomonidan bajariladi. Agar bot “faqat akkaunt egasi” desa, avval `/id` ni yuboring va Vercel Environment Variables’da `ADMIN_USER_ID` sifatida shu ID’ni kiriting, keyin yangi deployment qiling. Vercel serverless xotirasida rol hot instance davomida saqlanadi; doimiy saqlash kerak bo‘lsa, Redis yoki Postgres adapteri kerak bo‘ladi. Pause taymerining cold startdan keyin ham aniq ishlashi uchun `DATABASE_URL` orqali Neon PostgreSQL’ni Production environment’ga ulang. Dastur `telegram_owner_pauses` jadvalidan foydalanadi va `business_connection_id + chat_id` bo‘yicha oxirgi owner xabar vaqtini saqlaydi. `DATABASE_URL` bo‘lmasa, muqobil Upstash Redis o‘zgaruvchilari ishlatiladi; ikkalasi ham bo‘lmasa, lokal memory fallback qoladi va Vercel instance almashtirilganda pause holati yo‘qolishi mumkin.
+Xavfsizlik uchun `/rol` faqat `ADMIN_USER_ID` ga mos user tomonidan bajariladi. Admin ID `8645314130` sifatida berilgan. `DATABASE_URL` orqali Neon PostgreSQL ulangani sababli rol va suhbat tarixi yangi deploymentdan keyin ham saqlanadi. `telegram_settings` jadvalida global AI roli, `telegram_conversations` jadvalida har bir Business chat tarixi, `telegram_owner_pauses` jadvalida esa `business_connection_id + chat_id` bo‘yicha owner pause vaqti saqlanadi. Neon vaqtincha ishlamasa, bot xatoni logga yozib, javob oqimini xavfsiz fallback bilan davom ettiradi.
 
 ## Provider tanlash
 

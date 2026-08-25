@@ -8,7 +8,7 @@ from typing import Any
 
 from app import BusinessAiBot
 from config import Settings
-from memory_store import MemoryStore
+from postgres_store import PostgresStore
 
 
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +19,7 @@ try:
     if not os.getenv("WEBHOOK_SECRET", "").strip():
         raise ValueError("WEBHOOK_SECRET Vercel Environment Variables’da ko‘rsatilmagan")
     settings = Settings.from_env()
-    bot = BusinessAiBot(settings, store=MemoryStore(settings.max_history_messages))
+    bot = BusinessAiBot(settings, store=PostgresStore.from_env(settings.max_history_messages))
 except Exception:
     # Keep import errors visible in Vercel logs while allowing the function to
     # return a useful configuration error instead of failing silently.

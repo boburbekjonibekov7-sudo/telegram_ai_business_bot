@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import tempfile
 import time
 import unittest
@@ -10,6 +11,7 @@ from types import SimpleNamespace
 from ai_providers import AIService, ManusProvider
 from memory_store import MemoryStore
 from pause_store import UpstashPauseStore
+from postgres_store import PostgresStore
 from storage import JsonStore
 from app import BusinessAiBot
 from telegram_api import TelegramBotApi
@@ -55,6 +57,20 @@ class StorageTests(unittest.TestCase):
         self.assertGreater(store.owner_pause_remaining("business:bc:1"), 1700)
         store.mark_owner_activity("business:bc:1", time.time() - 1801)
         self.assertEqual(store.owner_pause_remaining("business:bc:1"), 0)
+
+
+class PostgresSelectionTests(unittest.TestCase):
+    def test_database_url_builds_postgres_store(self) -> None:
+        previous = os.environ.get("DATABASE_URL")
+        try:
+            os.environ["DATABASE_URL"] = "postgresql://example"
+            store = PostgresStore.from_env(12)
+            self.assertIsInstance(store, PostgresStore)
+        finally:
+            if previous is None:
+                os.environ.pop("DATABASE_URL", None)
+            else:
+                os.environ["DATABASE_URL"] = previous
 
 
 class PauseStoreTests(unittest.TestCase):

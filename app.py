@@ -10,8 +10,7 @@ from ai_providers import AIService, ProviderError
 from config import Settings
 from storage import JsonStore
 from telegram_api import TelegramApiError, TelegramBotApi
-from pause_store import UpstashPauseStore
-from postgres_pause_store import PostgresPauseStore
+from postgres_store import PostgresStore
 
 
 LOGGER = logging.getLogger("telegram_ai_business_bot")
@@ -23,8 +22,8 @@ class BusinessAiBot:
         self.settings = settings
         self.telegram = TelegramBotApi(settings.bot_token)
         self.ai = AIService(settings)
-        self.store = store or JsonStore(settings.data_dir, settings.max_history_messages)
-        self.pause_store = PostgresPauseStore.from_env() or UpstashPauseStore.from_env()
+        self.store = store or PostgresStore.from_env(settings.max_history_messages) or JsonStore(settings.data_dir, settings.max_history_messages)
+        self.pause_store = None
         self.connections: dict[str, dict[str, Any]] = {}
         self.admin_user_ids: set[int] = (
             {settings.admin_user_id} if settings.admin_user_id is not None else set()
@@ -355,8 +354,14 @@ class BusinessAiBot:
         return {"inline_keyboard": [[{"text": "🔙 Admin panel", "callback_data": "admin:home"}]]}
 
     def _admin_stats_text(self) -> str:
-        chats = len(getattr(self.store, "data", {}))
-        pauses = len(getattr(self.store, "owner_activity", {}))
+        if hasattr(self.store, "conversation_count"):
+            chats = int(self.store.conversation_count())
+        else:
+            chats = len(getattr(self.store, "data", {}))
+        if hasattr(self.store, "pause_count"):
+            pauses = int(self.store.pause_count())
+        else:
+            pauses = len(getattr(self.store, "owner_activity", {}))
         provider = getattr(self.settings, "ai_provider", "unknown")
         return f"📊 Statistika\n\n💬 Xotiradagi chatlar: {chats}\n⏱ Pause yozuvlari: {pauses}\n🤖 AI provider: {provider}"
 
