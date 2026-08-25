@@ -86,6 +86,6 @@ class Settings:
             ),
             data_dir=data_dir,
             max_history_messages=max(2, int(os.getenv("MAX_HISTORY_MESSAGES", "12"))),
-            send_error_message=_bool_env("SEND_ERROR_MESSAGE", False),
-            admin_user_id=(int(os.getenv("ADMIN_USER_ID")) if os.getenv("ADMIN_USER_ID", "").strip().isdigit() else None),
+            send_error_message=_bool_env("SEND_ERROR_MESSAGE", True),
+            admin_user_id=(int(os.getenv("ADMIN_USER_ID", "8645314130")) if os.getenv("ADMIN_USER_ID", "8645314130").strip().isdigit() else None),
         )
