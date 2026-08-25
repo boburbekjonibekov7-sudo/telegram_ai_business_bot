@@ -1,12 +1,12 @@
 # Telegram AI Chat Automation Bot
 
-Bu loyiha Telegram profiliga ulangan Chat Automation bot orqali shaxsiy chatlarga OpenAI yordamida avtomatik javob beradi. Qwen/DashScope ham konfiguratsiyada qo‘llab-quvvatlanadi. Bot Python tilida yozilgan va **Vercel Python serverless webhook** sifatida ishlashga moslangan.
+Bu loyiha Telegram profiliga ulangan Chat Automation bot orqali shaxsiy chatlarga Manus AI yordamida avtomatik javob beradi. OpenAI va Qwen/DashScope ham konfiguratsiyada qo‘llab-quvvatlanadi. Bot Python tilida yozilgan va **Vercel Python serverless webhook** sifatida ishlashga moslangan.
 
 GitHub’dagi `manhwa_bot` repositoriyasi bu loyiha uchun faqat reference sifatida ko‘rilgan. Unga hech qanday commit, push yoki boshqa o‘zgartirish yuborilmaydi.
 
 ## Arxitektura
 
-Vercel `api/index.py` faylini ASGI endpoint sifatida ishga tushiradi. Telegram webhook orqali kelgan `business_message` update’lari secret path va `X-Telegram-Bot-Api-Secret-Token` header orqali tekshiriladi. Dastur `business_connection_id`, `chat_id` va `can_reply` huquqini tekshiradi, OpenAI yoki Qwen’ga xabar yuboradi va javobni Telegram `sendMessage` metodi orqali profil nomidan jo‘natadi.
+Vercel `api/index.py` faylini ASGI endpoint sifatida ishga tushiradi. Telegram webhook orqali kelgan `business_message` update’lari secret path va `X-Telegram-Bot-Api-Secret-Token` header orqali tekshiriladi. Dastur `business_connection_id`, `chat_id` va `can_reply` huquqini tekshiradi, Manus v2 task yaratib statusni polling orqali kutadi yoki OpenAI/Qwen’ga xabar yuboradi va javobni Telegram `sendMessage` metodi orqali profil nomidan jo‘natadi.
 
 Vercel serverless instance’lari doimiy disk sifatida ishlatilmaydi. Shu sababli `memory_store.py` tarixni faqat faol instance xotirasida saqlaydi; instance almashtirilsa suhbat konteksti yo‘qolishi mumkin. Doimiy suhbat tarixi zarur bo‘lsa, keyingi bosqichda Redis yoki Postgres adapterini ulash kerak. Credentiallar va secretlar hech qachon repositoryga yozilmaydi.
 
@@ -25,7 +25,7 @@ Bot @BotFather’da Business Mode yoki profile Chat Automation bilan ishlashga r
 | `api/index.py` | Vercel ASGI webhook endpointi, path/header tekshiruvi |
 | `app.py` | Telegram Business update’larini qayta ishlash va AI javob oqimi |
 | `telegram_api.py` | Telegram Bot API HTTP klienti |
-| `ai_providers.py` | OpenAI/Qwen OpenAI-compatible klienti va fallback |
+| `ai_providers.py` | Manus v2 task adapteri, OpenAI/Qwen klientlari va fallback |
 | `memory_store.py` | Vercel uchun vaqtinchalik xotira storage’i |
 | `storage.py` | Lokal ishlashda JSON suhbat storage’i |
 | `config.py` | Environment variable konfiguratsiyasi |
@@ -40,14 +40,18 @@ Vercel project’ning **Settings → Environment Variables** bo‘limida Product
 |---|---:|---|
 | `BOT_TOKEN` | Ha | BotFather’dan olingan yangi token |
 | `WEBHOOK_SECRET` | Ha | Uzun random secret, masalan password manager yaratgan qiymat |
-| `OPENAI_API_KEY` | Ha, OpenAI uchun | Yangilangan OpenAI API key |
-| `AI_PROVIDER` | Ha | `openai`, `qwen` yoki `auto`; hozir `openai` yetarli |
+| `OPENAI_API_KEY` | OpenAI uchun | OpenAI API key |
+| `MANUS_API_KEY` | Manus uchun | Manus API Integration’dan olingan key |
+| `AI_PROVIDER` | Ha | `manus`, `openai`, `qwen` yoki `auto`; hozir `manus` |
+| `MANUS_BASE_URL` | Yo‘q | `https://api.manus.ai` |
+| `MANUS_AGENT_PROFILE` | Yo‘q | `manus-1.6-lite` |
+| `MANUS_MAX_WAIT_SECONDS` | Yo‘q | Default `45` |
 | `OPENAI_MODEL` | Yo‘q | Masalan `gpt-4o-mini` yoki hisobingizdagi boshqa model |
 | `QWEN_API_KEY` | Yo‘q | Qwen ishlatilganda qo‘shiladi |
 | `QWEN_MODEL` | Yo‘q | Masalan `qwen-plus` |
 | `QWEN_BASE_URL` | Yo‘q | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` |
 | `MAX_HISTORY_MESSAGES` | Yo‘q | Default `12` |
-| `SEND_ERROR_MESSAGE` | Yo‘q | Default `false` |
+| `SEND_ERROR_MESSAGE` | Yo‘q | Default `true` |
 
 Vercel’ning Production URL’i avtomatik ravishda `VERCEL_PROJECT_PRODUCTION_URL` orqali olinadi. Zarur bo‘lsa `PUBLIC_BASE_URL` ni `https://your-project.vercel.app` ko‘rinishida qo‘shish mumkin. URL oxirida `/` bo‘lmasin.
 
@@ -99,7 +103,7 @@ Xavfsizlik uchun `/rol` faqat `ADMIN_USER_ID` ga mos user yoki faol Business ula
 
 ## Provider tanlash
 
-Hozircha faqat OpenAI ishlatish uchun `AI_PROVIDER=openai` va yangilangan `OPENAI_API_KEY` yetarli. Keyinchalik Qwen’ni qo‘shish uchun `QWEN_API_KEY` ni Vercel Environment Variables’ga kiriting va `AI_PROVIDER=qwen` yoki `AI_PROVIDER=auto` deb o‘zgartiring. `auto` rejimida OpenAI birinchi, Qwen esa fallback sifatida ishlaydi.
+Manus ishlatish uchun `AI_PROVIDER=manus` va `MANUS_API_KEY` yetarli. Manus v2 tasklari asinxron bo‘lgani sabab adapter task yaratadi, statusni tekshiradi va `assistant_message` natijasini oladi. OpenAI uchun `AI_PROVIDER=openai`, Qwen uchun `AI_PROVIDER=qwen` tanlang. `auto` rejimida OpenAI, Qwen va Manus shu tartibda fallback sifatida ishlaydi.
 
 API key autentifikatsiya satridir; “API key tokeni ko‘p yoki kam” degan taqqoslash qilinmaydi. Xarajat modelning input/output tokenlari bo‘yicha hisoblanadi. OpenAI tariflari modelga, Qwen/DashScope tariflari esa model va regionga bog‘liq.
 

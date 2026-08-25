@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from ai_providers import AIService
+from ai_providers import AIService, ManusProvider
 from memory_store import MemoryStore
 from storage import JsonStore
 from app import BusinessAiBot
@@ -67,6 +67,19 @@ class ProviderSelectionTests(unittest.TestCase):
     def test_explicit_qwen(self) -> None:
         service = AIService(self._settings("qwen"))
         self.assertEqual(service._provider_order(), ["qwen"])
+
+    def test_manus_prompt_and_output_parsing(self) -> None:
+        prompt = ManusProvider._prompt([
+            {"role": "system", "content": "Qisqa yoz."},
+            {"role": "user", "content": "Salom"},
+        ])
+        self.assertIn("Ko‘rsatma:", prompt)
+        self.assertIn("Foydalanuvchi: Salom", prompt)
+        answer = ManusProvider._assistant_text([
+            {"type": "status_update", "status_update": {"agent_status": "stopped"}},
+            {"type": "assistant_message", "assistant_message": {"content": "Assalom"}},
+        ])
+        self.assertEqual(answer, "Assalom")
 
 
 class RoleCommandTests(unittest.TestCase):

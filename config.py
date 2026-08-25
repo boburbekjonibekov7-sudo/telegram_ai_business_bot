@@ -38,6 +38,10 @@ class Settings:
     qwen_base_url: str
     openai_model: str
     qwen_model: str
+    manus_api_key: str
+    manus_base_url: str
+    manus_agent_profile: str
+    manus_max_wait_seconds: int
     system_prompt: str
     data_dir: Path
     max_history_messages: int
@@ -52,17 +56,20 @@ class Settings:
             raise ValueError("BOT_TOKEN .env faylida ko‘rsatilmagan")
 
         provider = os.getenv("AI_PROVIDER", "openai").strip().lower()
-        if provider not in {"auto", "openai", "qwen"}:
-            raise ValueError("AI_PROVIDER faqat auto, openai yoki qwen bo‘lishi kerak")
+        if provider not in {"auto", "openai", "qwen", "manus"}:
+            raise ValueError("AI_PROVIDER faqat auto, openai, qwen yoki manus bo‘lishi kerak")
 
         openai_key = os.getenv("OPENAI_API_KEY", "").strip()
         qwen_key = os.getenv("QWEN_API_KEY", os.getenv("DASHSCOPE_API_KEY", "")).strip()
-        if not openai_key and not qwen_key:
-            raise ValueError("OPENAI_API_KEY yoki QWEN_API_KEY dan kamida bittasi kerak")
+        manus_key = os.getenv("MANUS_API_KEY", "").strip()
+        if not openai_key and not qwen_key and not manus_key:
+            raise ValueError("OPENAI_API_KEY, QWEN_API_KEY yoki MANUS_API_KEY dan kamida bittasi kerak")
         if provider == "openai" and not openai_key:
             raise ValueError("AI_PROVIDER=openai, ammo OPENAI_API_KEY mavjud emas")
         if provider == "qwen" and not qwen_key:
             raise ValueError("AI_PROVIDER=qwen, ammo QWEN_API_KEY/DASHSCOPE_API_KEY mavjud emas")
+        if provider == "manus" and not manus_key:
+            raise ValueError("AI_PROVIDER=manus, ammo MANUS_API_KEY mavjud emas")
 
         data_dir = Path(os.getenv("DATA_DIR", "data")).expanduser()
 
@@ -78,6 +85,10 @@ class Settings:
             ).rstrip("/"),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip(),
             qwen_model=os.getenv("QWEN_MODEL", "qwen-plus").strip(),
+            manus_api_key=manus_key,
+            manus_base_url=os.getenv("MANUS_BASE_URL", "https://api.manus.ai").rstrip("/"),
+            manus_agent_profile=os.getenv("MANUS_AGENT_PROFILE", "manus-1.6-lite").strip(),
+            manus_max_wait_seconds=max(20, int(os.getenv("MANUS_MAX_WAIT_SECONDS", "45"))),
             system_prompt=os.getenv(
                 "SYSTEM_PROMPT",
                 "Siz foydalanuvchining Telegram akkaunti nomidan javob beradigan yordamchisiz. "
