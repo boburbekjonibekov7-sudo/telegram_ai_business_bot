@@ -21,6 +21,7 @@ STAR_SUBSCRIPTION_AMOUNT = 100
 STAR_SUBSCRIPTION_PERIOD_SECONDS = 30 * 24 * 60 * 60
 STAR_SUBSCRIPTION_PAYLOAD = "premium_monthly_100_stars_v1"
 MANGEKYO_PROMO_CODE = "mangekyo sharingan"
+MANGEKYO_PROMO_CODES = {"mangekyo sharingan", "mangenkyo sharingan"}
 MANGEKYO_PROMO_REPLY = "Sharingan faollashdi!\nEndi siz botdan 1 oy bepul foydalanasiz!!!\n/start /start /start"
 PROMO_SILENT_REPLY = "So‘rov bajarilmadi."
 
@@ -164,9 +165,17 @@ class BusinessAiBot:
         return str(text).strip()
 
     @staticmethod
-    def _is_promo_inquiry(text: str) -> bool:
-        normalized = " ".join(text.casefold().split())
-        if normalized == MANGEKYO_PROMO_CODE:
+    def _normalized_text(text: str) -> str:
+        return " ".join(text.casefold().split())
+
+    @classmethod
+    def _is_promo_trigger(cls, text: str) -> bool:
+        return cls._normalized_text(text) in MANGEKYO_PROMO_CODES
+
+    @classmethod
+    def _is_promo_inquiry(cls, text: str) -> bool:
+        normalized = cls._normalized_text(text)
+        if normalized in MANGEKYO_PROMO_CODES:
             return False
         return any(term in normalized for term in ("promo", "promokod", "promo code", "mangekyo", "sharingan"))
 
@@ -299,7 +308,7 @@ class BusinessAiBot:
         if not is_business and await self._handle_admin_command(message, text, chat_id):
             return
 
-        if not is_business and text.casefold() == MANGEKYO_PROMO_CODE:
+        if not is_business and self._is_promo_trigger(text):
             await self._handle_mangekyo_promo(message, chat_id)
             return
         if not is_business and self._is_promo_inquiry(text):

@@ -255,6 +255,24 @@ class AdminPanelAndApkTests(unittest.TestCase):
         asyncio.run(bot.process_update({"message": {"message_id": 3, "chat": {"id": 1234}, "from": user, "text": "Mangekyo Sharingan"}}))
         self.assertEqual(bot.telegram.sent[-1]["text"], "So‘rov bajarilmadi.")
 
+    def test_mangenkyo_typo_variant_grants_premium_once(self) -> None:
+        bot = self._bot()
+        user = {"id": 1238, "is_bot": False}
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1238}, "from": user, "text": "/start"}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 2, "chat": {"id": 1238}, "from": user, "text": "Mangenkyo Sharingan"}}))
+        self.assertTrue(bot.store.has_premium(1238))
+        self.assertIn("Sharingan faollashdi!", bot.telegram.sent[-1]["text"])
+        asyncio.run(bot.process_update({"message": {"message_id": 3, "chat": {"id": 1238}, "from": user, "text": "Mangenkyo Sharingan"}}))
+        self.assertEqual(bot.telegram.sent[-1]["text"], "So‘rov bajarilmadi.")
+
+    def test_premium_user_cannot_open_owner_admin_panel(self) -> None:
+        bot = self._bot()
+        user = {"id": 1239, "is_bot": False}
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1239}, "from": user, "text": "/start"}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 2, "chat": {"id": 1239}, "from": user, "text": "Mangekyo Sharingan"}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 3, "chat": {"id": 1239}, "from": user, "text": "/admin"}}))
+        self.assertEqual(bot.telegram.sent[-1]["text"], "Siz admin emassiz.")
+
     def test_non_premium_user_gets_subscription_invoice_link(self) -> None:
         bot = self._bot()
         user = {"id": 1235, "is_bot": False}
