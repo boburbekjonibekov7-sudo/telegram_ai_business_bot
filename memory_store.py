@@ -13,6 +13,7 @@ class MemoryStore:
     def __init__(self, max_history_messages: int = 12):
         self.max_history_messages = max_history_messages
         self.data: dict[str, list[dict[str, str]]] = {}
+        self.role = ""
         self.lock = Lock()
 
     def history(self, key: str, system_prompt: str) -> list[dict[str, str]]:
@@ -31,3 +32,15 @@ class MemoryStore:
     def clear(self, key: str) -> None:
         with self.lock:
             self.data.pop(key, None)
+
+    def get_role(self, default: str) -> str:
+        with self.lock:
+            return self.role or default
+
+    def set_role(self, role: str) -> None:
+        with self.lock:
+            self.role = role.strip()
+
+    def clear_role(self) -> None:
+        with self.lock:
+            self.role = ""

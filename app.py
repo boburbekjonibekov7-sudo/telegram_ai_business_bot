@@ -22,6 +22,9 @@ class BusinessAiBot:
         self.ai = AIService(settings)
         self.store = store or JsonStore(settings.data_dir, settings.max_history_messages)
         self.connections: dict[str, dict[str, Any]] = {}
+        self.admin_user_ids: set[int] = (
+            {settings.admin_user_id} if settings.admin_user_id is not None else set()
+        )
         self.chat_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.stop_event = asyncio.Event()
 
@@ -79,7 +82,13 @@ class BusinessAiBot:
             self._cache_connection(update["business_connection"])
             return
         if "business_message" in update:
-            await self.handle_message(update["business_message"], is_business=True)
+            message = update["business_message"]
+            LOGGER.info(
+                "Business message qabul qilindi: chat_id=%s connection_id=%s",
+                (message.get("chat") or {}).get("id"),
+                message.get("business_connection_id"),
+            )
+            await self.handle_message(message, is_business=True)
             return
         if "edited_business_message" in update:
             # Editing an incoming message should not create a second AI answer.
@@ -94,6 +103,10 @@ class BusinessAiBot:
         if not connection_id:
             return
         self.connections[str(connection_id)] = connection
+        owner = connection.get("user") or {}
+        owner_id = owner.get("id") or connection.get("user_chat_id")
+        if isinstance(owner_id, int):
+            self.admin_user_ids.add(owner_id)
         if connection.get("is_enabled") is False:
             LOGGER.info("Business ulanish o‘chirildi: %s", connection_id)
         else:
@@ -126,6 +139,58 @@ class BusinessAiBot:
         text = message.get("text") or message.get("caption") or ""
         return str(text).strip()
 
+    def _effective_system_prompt(self) -> str:
+        role = self.store.get_role("")
+        if not role:
+            return self.settings.system_prompt
+        return f"{self.settings.system_prompt}\n\nQo‘shimcha boshqaruvchi roli:\n{role}"
+
+    def _is_admin(self, message: dict[str, Any]) -> bool:
+        sender = message.get("from") or {}
+        user_id = sender.get("id")
+        return isinstance(user_id, int) and user_id in self.admin_user_ids
+
+    async def _handle_admin_command(
+        self,
+        message: dict[str, Any],
+        text: str,
+        chat_id: int,
+    ) -> bool:
+        parts = text.split(maxsplit=1)
+        command = parts[0].split("@", 1)[0].lower() if parts else ""
+        argument = parts[1].strip() if len(parts) == 2 else ""
+        reply_to = message.get("message_id")
+
+        if command == "/id":
+            sender_id = (message.get("from") or {}).get("id")
+            await self._send_chunks(chat_id, f"Sizning Telegram user ID: {sender_id}", None, reply_to)
+            return True
+
+        if command not in {"/rol", "/role"}:
+            return False
+        if not self._is_admin(message):
+            await self._send_chunks(
+                chat_id,
+                "Bu buyruq faqat akkaunt egasi uchun. Avval /id orqali ID’ingizni oling va Vercel’da ADMIN_USER_ID qilib kiriting.",
+                None,
+                reply_to,
+            )
+            return True
+        if not argument:
+            current = self.store.get_role(self.settings.system_prompt)
+            await self._send_chunks(chat_id, f"Joriy rol:\n{current}", None, reply_to)
+            return True
+        if argument.lower() in {"reset", "default", "tozalash"}:
+            self.store.clear_role()
+            await self._send_chunks(chat_id, "Rol standart holatga qaytarildi.", None, reply_to)
+            return True
+        if len(argument) > 2000:
+            await self._send_chunks(chat_id, "Rol 2000 belgidan oshmasligi kerak.", None, reply_to)
+            return True
+        self.store.set_role(argument)
+        await self._send_chunks(chat_id, "Yangi rol saqlandi. Keyingi Business xabarlar shu uslubda javoblanadi.", None, reply_to)
+        return True
+
     @staticmethod
     def _chat_id(message: dict[str, Any]) -> int | None:
         chat = message.get("chat") or {}
@@ -152,8 +217,14 @@ class BusinessAiBot:
                 return
             rights = connection.get("rights") or {}
             if rights.get("can_reply") is not True:
-                LOGGER.warning("Business botda can_reply huquqi yo‘q: %s", business_connection_id)
+                LOGGER.warning(
+                    "Business botda can_reply huquqi yo‘q: %s; Chat Automation’da reply/send messages huquqini yoqing",
+                    business_connection_id,
+                )
                 return
+
+        if not is_business and await self._handle_admin_command(message, text, chat_id):
+            return
 
         storage_key = self._storage_key(chat_id, business_connection_id)
         async with self.chat_locks[storage_key]:
@@ -167,7 +238,7 @@ class BusinessAiBot:
                 )
                 return
 
-            history = self.store.history(storage_key, self.settings.system_prompt)
+            history = self.store.history(storage_key, self._effective_system_prompt())
             history.append({"role": "user", "content": text})
             try:
                 await self.telegram.send_typing(chat_id, business_connection_id)

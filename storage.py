@@ -16,17 +16,19 @@ class JsonStore:
         self.lock = Lock()
         self.data: dict[str, list[dict[str, str]]] = self._load()
 
-    def _load(self) -> dict[str, list[dict[str, str]]]:
+    def _load(self) -> dict[str, Any]:
         if not self.path.exists():
-            return {}
+            return {"__role__": ""}
         try:
             loaded: Any = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
-                return {
+                result: dict[str, Any] = {"__role__": str(loaded.get("__role__", ""))}
+                result.update({
                     str(key): value
                     for key, value in loaded.items()
-                    if isinstance(value, list)
-                }
+                    if key != "__role__" and isinstance(value, list)
+                })
+                return result
         except (OSError, json.JSONDecodeError):
             # Preserve a broken file for manual inspection instead of destroying it.
             backup = self.path.with_suffix(".broken.json")
@@ -34,7 +36,7 @@ class JsonStore:
                 self.path.replace(backup)
             except OSError:
                 pass
-        return {}
+        return {"__role__": ""}
 
     def _save(self) -> None:
         temporary = self.path.with_suffix(".tmp")
@@ -61,4 +63,18 @@ class JsonStore:
     def clear(self, key: str) -> None:
         with self.lock:
             self.data.pop(key, None)
+            self._save()
+
+    def get_role(self, default: str) -> str:
+        with self.lock:
+            return str(self.data.get("__role__") or default)
+
+    def set_role(self, role: str) -> None:
+        with self.lock:
+            self.data["__role__"] = role.strip()
+            self._save()
+
+    def clear_role(self) -> None:
+        with self.lock:
+            self.data["__role__"] = ""
             self._save()

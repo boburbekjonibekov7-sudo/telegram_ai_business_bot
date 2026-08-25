@@ -42,6 +42,7 @@ class Settings:
     data_dir: Path
     max_history_messages: int
     send_error_message: bool
+    admin_user_id: int | None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -86,4 +87,5 @@ class Settings:
             data_dir=data_dir,
             max_history_messages=max(2, int(os.getenv("MAX_HISTORY_MESSAGES", "12"))),
             send_error_message=_bool_env("SEND_ERROR_MESSAGE", False),
+            admin_user_id=(int(os.getenv("ADMIN_USER_ID")) if os.getenv("ADMIN_USER_ID", "").strip().isdigit() else None),
         )

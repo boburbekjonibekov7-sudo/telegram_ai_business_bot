@@ -91,6 +91,12 @@ python3 app.py
 
 Mahalliy polling testida `WEBHOOK_SECRET` kerak emas. Vercel webhook testida esa alohida public HTTPS URL va Telegram `setWebhook` kerak bo‘ladi. Kod credentiallarsiz kompilyatsiya va unit testlardan o‘tkazilgan.
 
+## Admin buyruqlari va AI roli
+
+Buyruqlarni mijoz chatiga emas, botning o‘z shaxsiy chatiga yuboring. `/id` Telegram user ID’ingizni ko‘rsatadi. `/rol Siz muloyim, qisqa va faqat o‘zbek tilida javob beradigan yordamchisiz.` buyrug‘i keyingi Business xabarlarga qo‘llanadigan AI uslubini saqlaydi. `/rol` joriy rolni ko‘rsatadi, `/rol reset` esa standart rolga qaytaradi. `/role` inglizcha alias sifatida ham ishlaydi.
+
+Xavfsizlik uchun `/rol` faqat `ADMIN_USER_ID` ga mos user yoki faol Business ulanishining akkaunt egasi tomonidan bajariladi. Agar bot “faqat akkaunt egasi” desa, avval `/id` ni yuboring va Vercel Environment Variables’da `ADMIN_USER_ID` sifatida shu ID’ni kiriting, keyin yangi deployment qiling. Vercel serverless xotirasida rol hot instance davomida saqlanadi; doimiy saqlash kerak bo‘lsa, Redis yoki Postgres adapteri kerak bo‘ladi.
+
 ## Provider tanlash
 
 Hozircha faqat OpenAI ishlatish uchun `AI_PROVIDER=openai` va yangilangan `OPENAI_API_KEY` yetarli. Keyinchalik Qwen’ni qo‘shish uchun `QWEN_API_KEY` ni Vercel Environment Variables’ga kiriting va `AI_PROVIDER=qwen` yoki `AI_PROVIDER=auto` deb o‘zgartiring. `auto` rejimida OpenAI birinchi, Qwen esa fallback sifatida ishlaydi.
