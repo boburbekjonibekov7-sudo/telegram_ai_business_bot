@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import signal
 from collections import defaultdict
 from typing import Any
@@ -15,6 +16,11 @@ from postgres_store import PostgresStore
 
 LOGGER = logging.getLogger("telegram_ai_business_bot")
 OWNER_PAUSE_SECONDS = 30 * 60
+STAR_SUBSCRIPTION_AMOUNT = 100
+STAR_SUBSCRIPTION_PERIOD_SECONDS = 30 * 24 * 60 * 60
+STAR_SUBSCRIPTION_PAYLOAD = "premium_monthly_100_stars_v1"
+MANGEKYO_PROMO_CODE = "mangekyo sharingan"
+MANGEKYO_PROMO_REPLY = "Sharingan faollashdi!\nEndi siz botdan 1 oy bepul foydalanasiz!!!\n/start /start /start"
 
 
 class BusinessAiBot:
@@ -81,6 +87,12 @@ class BusinessAiBot:
                 delay = min(delay * 2, 30)
 
     async def process_update(self, update: dict[str, Any]) -> None:
+        if "pre_checkout_query" in update:
+            await self.handle_pre_checkout_query(update["pre_checkout_query"])
+            return
+        if "subscription" in update:
+            await self.handle_subscription_update(update["subscription"])
+            return
         if "business_connection" in update:
             self._cache_connection(update["business_connection"])
             return
@@ -102,7 +114,11 @@ class BusinessAiBot:
         if "deleted_business_messages" in update:
             return
         if "message" in update:
-            await self.handle_message(update["message"], is_business=False)
+            message = update["message"]
+            if message.get("successful_payment"):
+                await self.handle_successful_payment(message)
+                return
+            await self.handle_message(message, is_business=False)
 
     def _cache_connection(self, connection: dict[str, Any]) -> None:
         connection_id = connection.get("id")
@@ -137,12 +153,22 @@ class BusinessAiBot:
         return None
 
     @staticmethod
+    def _user_id(message: dict[str, Any]) -> int | None:
+        user_id = (message.get("from") or {}).get("id")
+        return user_id if isinstance(user_id, int) else None
+
+    @staticmethod
     def _message_text(message: dict[str, Any]) -> str:
         text = message.get("text") or message.get("caption") or ""
         return str(text).strip()
 
-    def _effective_system_prompt(self) -> str:
+    def _effective_system_prompt(self, user_id: int | None = None) -> str:
         role = self.store.get_role("")
+        user_role_method = getattr(self.store, "get_user_role", None)
+        if user_id is not None and callable(user_role_method):
+            user_role = user_role_method(user_id, "")
+            if user_role:
+                role = user_role or role
         if not role:
             return self.settings.system_prompt
         return f"{self.settings.system_prompt}\n\nQo‘shimcha boshqaruvchi roli:\n{role}"
@@ -164,12 +190,33 @@ class BusinessAiBot:
         reply_to = message.get("message_id")
 
         if command == "/start":
+            sender_id = self._user_id(message)
+            if sender_id is not None:
+                marker = getattr(self.store, "mark_started", None)
+                if callable(marker):
+                    marker(sender_id)
             await self._send_chunks(
                 chat_id,
-                "Salom! Men Telegram Business chatlaringizga Manus AI yordamida javob beraman.\n\nAdmin panel: /admin\nAI roli: /rol\nTelegram ID: /id",
+                "Salom! Men Telegram Business chatlaringizga Manus AI yordamida javob beraman.\n\nPremium: /premium\nPromo: Mangekyo Sharingan\nTelegram ID: /id",
                 None,
                 reply_to,
             )
+            return True
+
+        if command in {"/terms", "/shartlar"}:
+            await self._send_chunks(chat_id, "Premium xizmat: oyiga 100 Telegram Stars, muddati 30 kun. To‘lov muvaffaqiyatli tasdiqlangandan keyin premium funksiyalar ochiladi. Bekor qilish yoki to‘lov bo‘yicha yordam uchun /paysupport buyrug‘idan foydalaning.", None, reply_to)
+            return True
+
+        if command in {"/paysupport", "/support"}:
+            await self._send_chunks(chat_id, "To‘lov yoki premium access muammosi bo‘lsa, bot egasiga shu chatda yozing. To‘lovni tekshirish uchun invoice ma’lumotlarini yuboring.", None, reply_to)
+            return True
+
+        if command == "/premium":
+            await self._send_premium_panel(chat_id, self._user_id(message), reply_to)
+            return True
+
+        if command in {"/myrole", "/premiumrole"}:
+            await self._handle_premium_role(message, argument, chat_id, reply_to)
             return True
 
         if command == "/id":
@@ -244,6 +291,15 @@ class BusinessAiBot:
         if not is_business and await self._handle_admin_command(message, text, chat_id):
             return
 
+        if not is_business and text.casefold() == MANGEKYO_PROMO_CODE:
+            await self._handle_mangekyo_promo(message, chat_id)
+            return
+
+        user_id = self._user_id(message)
+        if not is_business and user_id not in self.admin_user_ids and not self._has_premium(user_id):
+            await self._send_premium_panel(chat_id, user_id, message.get("message_id"))
+            return
+
         storage_key = self._storage_key(chat_id, business_connection_id)
         pause_seconds = max(1, int(getattr(self.settings, "manual_pause_seconds", OWNER_PAUSE_SECONDS)))
         pause_enabled = self._manual_pause_enabled() if is_business else False
@@ -272,7 +328,7 @@ class BusinessAiBot:
                 )
                 return
 
-            history = self.store.history(storage_key, self._effective_system_prompt())
+            history = self.store.history(storage_key, self._effective_system_prompt(user_id if not is_business else None))
             history.append({"role": "user", "content": text})
             try:
                 await self.telegram.send_typing(chat_id, business_connection_id)
@@ -315,15 +371,25 @@ class BusinessAiBot:
         callback_id = callback.get("id")
         if not isinstance(callback_id, str):
             return
-        if not isinstance(user_id, int) or user_id not in self.admin_user_ids:
-            await self.telegram.answer_callback_query(callback_id, "Siz admin emassiz.", True)
-            return
         data = str(callback.get("data") or "")
         message = callback.get("message") or {}
         chat_id = self._chat_id(message)
         message_id = message.get("message_id")
+        is_admin = isinstance(user_id, int) and user_id in self.admin_user_ids
+        if data.startswith("admin:") and not is_admin:
+            await self.telegram.answer_callback_query(callback_id, "Siz admin emassiz.", True)
+            return
         await self.telegram.answer_callback_query(callback_id)
         if not isinstance(chat_id, int) or not isinstance(message_id, int):
+            return
+        if data == "premium:buy":
+            await self._send_subscription_offer(chat_id, user_id, None)
+            return
+        if data == "premium:status":
+            await self._send_premium_panel(chat_id, user_id, None)
+            return
+        if data == "premium:role":
+            await self._send_chunks(chat_id, "Shaxsiy AI rolingizni o‘zgartirish uchun /myrole Sizning uslubingiz... buyrug‘ini yuboring.", None, None)
             return
         if data in {"admin:home", "admin:stats", "admin:role", "admin:pause", "admin:pause:toggle"}:
             if data == "admin:stats":
@@ -353,6 +419,154 @@ class BusinessAiBot:
                 await self.telegram.edit_message_text(chat_id, message_id, "✅ AI roli standart holatga qaytarildi.", self._admin_back_keyboard())
             except TelegramApiError:
                 await self._send_chunks(chat_id, "✅ AI roli standart holatga qaytarildi.", None, None, self._admin_back_keyboard())
+
+    def _has_premium(self, user_id: int | None) -> bool:
+        if user_id is None:
+            return False
+        method = getattr(self.store, "has_premium", None)
+        return bool(callable(method) and method(user_id))
+
+    def _premium_until(self, user_id: int | None) -> float | None:
+        if user_id is None:
+            return None
+        method = getattr(self.store, "premium_until", None)
+        return method(user_id) if callable(method) else None
+
+    async def _send_subscription_offer(self, chat_id: int, user_id: int | None, reply_to: int | None) -> None:
+        if user_id is not None and self._has_premium(user_id):
+            await self._send_premium_panel(chat_id, user_id, reply_to)
+            return
+        try:
+            link = await self.telegram.create_invoice_link(
+                "Premium AI — 1 oy",
+                "AI chat, shaxsiy rol va premium funksiyalar. Obuna 30 kun amal qiladi.",
+                STAR_SUBSCRIPTION_PAYLOAD,
+                STAR_SUBSCRIPTION_AMOUNT,
+                STAR_SUBSCRIPTION_PERIOD_SECONDS,
+            )
+            markup = {"inline_keyboard": [[{"text": "⭐ 100 Stars — obuna bo‘lish", "url": link}]]}
+            await self._send_chunks(
+                chat_id,
+                "Premium funksiyalarni ochish uchun oyiga 100 Telegram Stars to‘lang. To‘lov muvaffaqiyatli tasdiqlangach, premium access 30 kunga avtomatik ochiladi.",
+                None,
+                reply_to,
+                markup,
+            )
+        except (TelegramApiError, ProviderError) as exc:
+            LOGGER.error("Stars invoice yaratishda xato: %s", exc)
+            await self._send_chunks(chat_id, "Hozircha to‘lov havolasini yaratib bo‘lmadi. Keyinroq yana urinib ko‘ring.", None, reply_to)
+
+    async def _send_premium_panel(self, chat_id: int, user_id: int | None, reply_to: int | None) -> None:
+        if user_id is None:
+            await self._send_chunks(chat_id, "Premium panelni ochib bo‘lmadi.", None, reply_to)
+            return
+        until = self._premium_until(user_id)
+        if self._has_premium(user_id) and until:
+            remaining_days = max(1, int((until - time.time()) / 86400))
+            text = f"⭐ Premium faol. Qolgan muddat: taxminan {remaining_days} kun.\n\nShaxsiy AI rolingizni /myrole orqali sozlashingiz mumkin."
+        else:
+            text = "⭐ Premium faol emas. Oylik 100 Stars obunasi bilan AI chat, shaxsiy rol va boshqa premium funksiyalarni oching."
+        await self._send_chunks(chat_id, text, None, reply_to, self._premium_keyboard(self._has_premium(user_id)))
+
+    def _premium_keyboard(self, active: bool) -> dict[str, Any]:
+        rows: list[list[dict[str, str]]] = []
+        if active:
+            rows.append([{"text": "🧠 Shaxsiy rol", "callback_data": "premium:role"}])
+        else:
+            rows.append([{"text": "⭐ 100 Stars bilan obuna", "callback_data": "premium:buy"}])
+        rows.append([{"text": "🔄 Statusni yangilash", "callback_data": "premium:status"}])
+        return {"inline_keyboard": rows}
+
+    async def _handle_mangekyo_promo(self, message: dict[str, Any], chat_id: int) -> None:
+        user_id = self._user_id(message)
+        if user_id is None:
+            return
+        started_method = getattr(self.store, "has_started", None)
+        if callable(started_method) and not started_method(user_id):
+            await self._send_chunks(chat_id, "Avval /start buyrug‘ini yuboring.", None, message.get("message_id"))
+            return
+        redeem = getattr(self.store, "redeem_promo", None)
+        if not callable(redeem) or not redeem(user_id, MANGEKYO_PROMO_CODE, time.time() + STAR_SUBSCRIPTION_PERIOD_SECONDS):
+            await self._send_chunks(chat_id, "Bu promo kod siz uchun avval ishlatilgan.", None, message.get("message_id"))
+            return
+        grant = getattr(self.store, "grant_premium", None)
+        if callable(grant):
+            grant(user_id, time.time() + STAR_SUBSCRIPTION_PERIOD_SECONDS, "mangekyo_promo")
+        await self._send_chunks(chat_id, MANGEKYO_PROMO_REPLY, None, message.get("message_id"))
+
+    async def _handle_premium_role(self, message: dict[str, Any], argument: str, chat_id: int, reply_to: int | None) -> None:
+        user_id = self._user_id(message)
+        if user_id is None or not self._has_premium(user_id):
+            await self._send_chunks(chat_id, "Bu funksiya faqat premium userlar uchun. /premium buyrug‘i orqali obuna bo‘ling.", None, reply_to)
+            return
+        getter = getattr(self.store, "get_user_role", None)
+        setter = getattr(self.store, "set_user_role", None)
+        clearer = getattr(self.store, "clear_user_role", None)
+        if not callable(getter) or not callable(setter) or not callable(clearer):
+            await self._send_chunks(chat_id, "Shaxsiy rol storage’i hozircha mavjud emas.", None, reply_to)
+            return
+        if not argument:
+            current = getter(user_id, "")
+            await self._send_chunks(chat_id, f"Shaxsiy rol:\n{current or 'Standart rol faol.'}", None, reply_to)
+            return
+        if argument.casefold() in {"reset", "default", "tozalash"}:
+            clearer(user_id)
+            await self._send_chunks(chat_id, "Shaxsiy rol standart holatga qaytarildi.", None, reply_to)
+            return
+        if len(argument) > 2000:
+            await self._send_chunks(chat_id, "Shaxsiy rol 2000 belgidan oshmasligi kerak.", None, reply_to)
+            return
+        setter(user_id, argument)
+        await self._send_chunks(chat_id, "Shaxsiy premium rolingiz saqlandi.", None, reply_to)
+
+    async def handle_pre_checkout_query(self, query: dict[str, Any]) -> None:
+        query_id = query.get("id")
+        payload = str(query.get("invoice_payload") or "")
+        if not isinstance(query_id, str):
+            return
+        if payload != STAR_SUBSCRIPTION_PAYLOAD:
+            await self.telegram.answer_pre_checkout_query(query_id, False, "Invoice ma’lumotlari yaroqsiz.")
+            return
+        await self.telegram.answer_pre_checkout_query(query_id, True)
+
+    async def handle_successful_payment(self, message: dict[str, Any]) -> None:
+        payment = message.get("successful_payment") or {}
+        user_id = self._user_id(message)
+        chat_id = self._chat_id(message)
+        if user_id is None or chat_id is None:
+            return
+        amount = int(payment.get("total_amount") or 0)
+        if payment.get("currency") != "XTR" or payment.get("invoice_payload") != STAR_SUBSCRIPTION_PAYLOAD or amount != STAR_SUBSCRIPTION_AMOUNT:
+            LOGGER.warning("Noma’lum yoki noto‘g‘ri summadagi successful_payment qabul qilindi")
+            return
+        charge_id = str(payment.get("telegram_payment_charge_id") or "")
+        if not charge_id:
+            return
+        expiration = float(payment.get("subscription_expiration_date") or (time.time() + STAR_SUBSCRIPTION_PERIOD_SECONDS))
+        recorder = getattr(self.store, "record_star_payment", None)
+        inserted = recorder(
+            charge_id=charge_id,
+            user_id=user_id,
+            amount=amount,
+            currency=str(payment.get("currency")),
+            invoice_payload=str(payment.get("invoice_payload")),
+            subscription_expiration_date=expiration,
+            is_recurring=bool(payment.get("is_recurring")),
+            is_first_recurring=bool(payment.get("is_first_recurring")),
+        ) if callable(recorder) else True
+        if inserted:
+            grant = getattr(self.store, "grant_premium", None)
+            if callable(grant):
+                grant(user_id, expiration, "stars_subscription")
+        await self._send_chunks(chat_id, "✅ To‘lov tasdiqlandi. Premium funksiyalar 30 kunga faollashdi. /premium orqali statusni ko‘ring.", None, message.get("message_id"))
+
+    async def handle_subscription_update(self, update: dict[str, Any]) -> None:
+        user = update.get("user") or {}
+        user_id = user.get("id")
+        state = str(update.get("state") or "")
+        setter = getattr(self.store, "set_subscription_state", None)
+        if isinstance(user_id, int) and callable(setter) and state:
+            setter(user_id, state)
 
     def _admin_panel_text(self) -> str:
         return "👮 Admin panel\n\nKerakli bo‘limni tanlang:"
@@ -405,7 +619,9 @@ class BusinessAiBot:
             pauses = len(getattr(self.store, "owner_activity", {}))
         provider = getattr(self.settings, "ai_provider", "unknown")
         pause_state = "yoqilgan" if self._manual_pause_enabled() else "o‘chirilgan"
-        return f"📊 Statistika\n\n💬 Xotiradagi chatlar: {chats}\n⏱ Pause yozuvlari: {pauses}\n⏱ Manual pause: {pause_state}\n🤖 AI provider: {provider}"
+        premium_method = getattr(self.store, "premium_count", None)
+        premium = int(premium_method()) if callable(premium_method) else 0
+        return f"📊 Statistika\n\n💬 Xotiradagi chatlar: {chats}\n⭐ Faol premium userlar: {premium}\n⏱ Pause yozuvlari: {pauses}\n⏱ Manual pause: {pause_state}\n🤖 AI provider: {provider}"
 
     @staticmethod
     def _is_apk_message(message: dict[str, Any]) -> bool:

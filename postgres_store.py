@@ -82,6 +82,59 @@ class PostgresStore:
                     )
                     cursor.execute(
                         """
+                        CREATE TABLE IF NOT EXISTS telegram_premium_access (
+                            user_id BIGINT PRIMARY KEY,
+                            premium_until DOUBLE PRECISION NOT NULL,
+                            source TEXT NOT NULL,
+                            subscription_state TEXT NOT NULL DEFAULT 'active',
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS telegram_star_payments (
+                            charge_id TEXT PRIMARY KEY,
+                            user_id BIGINT NOT NULL,
+                            amount INTEGER NOT NULL,
+                            currency TEXT NOT NULL,
+                            invoice_payload TEXT NOT NULL,
+                            subscription_expiration_date DOUBLE PRECISION,
+                            is_recurring BOOLEAN NOT NULL DEFAULT FALSE,
+                            is_first_recurring BOOLEAN NOT NULL DEFAULT FALSE,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS telegram_promo_redemptions (
+                            user_id BIGINT PRIMARY KEY,
+                            promo_code TEXT NOT NULL,
+                            redeemed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            expires_at DOUBLE PRECISION NOT NULL
+                        )
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS telegram_user_starts (
+                            user_id BIGINT PRIMARY KEY,
+                            started_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS telegram_user_roles (
+                            user_id BIGINT PRIMARY KEY,
+                            role TEXT NOT NULL,
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                    cursor.execute(
+                        """
                         CREATE TABLE IF NOT EXISTS telegram_owner_pauses (
                             business_connection_id TEXT NOT NULL,
                             chat_id BIGINT NOT NULL,
@@ -246,6 +299,182 @@ class PostgresStore:
                     )
         except Exception as exc:
             LOGGER.warning("Postgres pause setting write failed: %s", exc)
+
+    def mark_started(self, user_id: int) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "INSERT INTO telegram_user_starts (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING",
+                        (user_id,),
+                    )
+        except Exception as exc:
+            LOGGER.warning("Postgres start marker write failed: %s", exc)
+
+    def has_started(self, user_id: int) -> bool:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT 1 FROM telegram_user_starts WHERE user_id = %s LIMIT 1", (user_id,))
+                    return cursor.fetchone() is not None
+        except Exception as exc:
+            LOGGER.warning("Postgres start marker read failed: %s", exc)
+            return False
+
+    def has_premium(self, user_id: int) -> bool:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT premium_until FROM telegram_premium_access WHERE user_id = %s LIMIT 1", (user_id,))
+                    row = cursor.fetchone()
+            return bool(row and float(row[0]) > time.time())
+        except Exception as exc:
+            LOGGER.warning("Postgres premium read failed: %s", exc)
+            return False
+
+    def premium_until(self, user_id: int) -> float | None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT premium_until FROM telegram_premium_access WHERE user_id = %s LIMIT 1", (user_id,))
+                    row = cursor.fetchone()
+            return float(row[0]) if row else None
+        except Exception as exc:
+            LOGGER.warning("Postgres premium expiry read failed: %s", exc)
+            return None
+
+    def grant_premium(self, user_id: int, premium_until: float, source: str) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO telegram_premium_access (user_id, premium_until, source)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (user_id) DO UPDATE SET
+                            premium_until = GREATEST(telegram_premium_access.premium_until, EXCLUDED.premium_until),
+                            source = EXCLUDED.source,
+                            subscription_state = 'active',
+                            updated_at = NOW()
+                        """,
+                        (user_id, premium_until, source),
+                    )
+        except Exception as exc:
+            LOGGER.warning("Postgres premium grant failed: %s", exc)
+
+    def record_star_payment(
+        self,
+        *,
+        charge_id: str,
+        user_id: int,
+        amount: int,
+        currency: str,
+        invoice_payload: str,
+        subscription_expiration_date: float,
+        is_recurring: bool,
+        is_first_recurring: bool,
+    ) -> bool:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO telegram_star_payments
+                            (charge_id, user_id, amount, currency, invoice_payload,
+                             subscription_expiration_date, is_recurring, is_first_recurring)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (charge_id) DO NOTHING
+                        """,
+                        (charge_id, user_id, amount, currency, invoice_payload,
+                         subscription_expiration_date, is_recurring, is_first_recurring),
+                    )
+                    inserted = cursor.rowcount == 1
+            return inserted
+        except Exception as exc:
+            LOGGER.warning("Postgres star payment write failed: %s", exc)
+            return False
+
+    def redeem_promo(self, user_id: int, promo_code: str, expires_at: float) -> bool:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO telegram_promo_redemptions (user_id, promo_code, expires_at)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (user_id) DO NOTHING
+                        """,
+                        (user_id, promo_code, expires_at),
+                    )
+                    return cursor.rowcount == 1
+        except Exception as exc:
+            LOGGER.warning("Postgres promo redemption failed: %s", exc)
+            return False
+
+    def get_user_role(self, user_id: int, default: str = "") -> str:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT role FROM telegram_user_roles WHERE user_id = %s LIMIT 1", (user_id,))
+                    row = cursor.fetchone()
+            return str(row[0]) if row and row[0] else default
+        except Exception as exc:
+            LOGGER.warning("Postgres user role read failed: %s", exc)
+            return default
+
+    def set_user_role(self, user_id: int, role: str) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO telegram_user_roles (user_id, role)
+                        VALUES (%s, %s)
+                        ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role, updated_at = NOW()
+                        """,
+                        (user_id, role.strip()),
+                    )
+        except Exception as exc:
+            LOGGER.warning("Postgres user role write failed: %s", exc)
+
+    def clear_user_role(self, user_id: int) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("DELETE FROM telegram_user_roles WHERE user_id = %s", (user_id,))
+        except Exception as exc:
+            LOGGER.warning("Postgres user role clear failed: %s", exc)
+
+    def premium_count(self) -> int:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT COUNT(*) FROM telegram_premium_access WHERE premium_until > %s", (time.time(),))
+                    row = cursor.fetchone()
+            return int(row[0]) if row else 0
+        except Exception as exc:
+            LOGGER.warning("Postgres premium count failed: %s", exc)
+            return 0
+
+    def set_subscription_state(self, user_id: int, state: str) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("UPDATE telegram_premium_access SET subscription_state = %s, updated_at = NOW() WHERE user_id = %s", (state, user_id))
+        except Exception as exc:
+            LOGGER.warning("Postgres subscription state update failed: %s", exc)
 
     def mark_owner_activity(self, key: str, timestamp: float | None = None) -> None:
         connection_id, chat_id = self._parts(key)

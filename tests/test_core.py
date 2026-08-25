@@ -191,10 +191,20 @@ class AdminPanelAndApkTests(unittest.TestCase):
             self.sent = []
             self.deleted = []
             self.callback_answers = []
+            self.invoice_links = []
+            self.pre_checkout_answers = []
 
         async def send_message(self, **kwargs):
             self.sent.append(kwargs)
             return {"message_id": 10}
+
+        async def create_invoice_link(self, title, description, payload, amount, subscription_period):
+            self.invoice_links.append({"title": title, "description": description, "payload": payload, "amount": amount, "subscription_period": subscription_period})
+            return "https://t.me/invoice/test"
+
+        async def answer_pre_checkout_query(self, query_id, ok, error_message=None):
+            self.pre_checkout_answers.append((query_id, ok, error_message))
+            return True
 
         async def delete_business_messages(self, business_connection_id, message_ids):
             self.deleted.append((business_connection_id, message_ids))
@@ -235,11 +245,43 @@ class AdminPanelAndApkTests(unittest.TestCase):
         asyncio.run(bot.process_update({"callback_query": {"id": "cb-pause-2", "from": {"id": 8645314130}, "data": "admin:pause:toggle", "message": {"chat": {"id": 8645314130}, "message_id": 20}}}))
         self.assertTrue(bot._manual_pause_enabled())
 
+    def test_mangekyo_promo_grants_once_and_sends_requested_text(self) -> None:
+        bot = self._bot()
+        user = {"id": 1234, "is_bot": False}
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1234}, "from": user, "text": "/start"}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 2, "chat": {"id": 1234}, "from": user, "text": "Mangekyo Sharingan"}}))
+        self.assertIn("Sharingan faollashdi!\nEndi siz botdan 1 oy bepul foydalanasiz!!!\n/start /start /start", bot.telegram.sent[-1]["text"])
+        self.assertTrue(bot.store.has_premium(1234))
+        asyncio.run(bot.process_update({"message": {"message_id": 3, "chat": {"id": 1234}, "from": user, "text": "Mangekyo Sharingan"}}))
+        self.assertIn("avval ishlatilgan", bot.telegram.sent[-1]["text"])
+
+    def test_non_premium_user_gets_subscription_invoice_link(self) -> None:
+        bot = self._bot()
+        user = {"id": 1235, "is_bot": False}
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1235}, "from": user, "text": "/start"}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 2, "chat": {"id": 1235}, "from": user, "text": "/premium"}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "premium-buy", "from": user, "data": "premium:buy", "message": {"chat": {"id": 1235}, "message_id": 10}}}))
+        self.assertEqual(bot.telegram.invoice_links[-1]["amount"], 100)
+        self.assertEqual(bot.telegram.invoice_links[-1]["subscription_period"], 2592000)
+        self.assertEqual(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["url"], "https://t.me/invoice/test")
+
+    def test_successful_payment_grants_premium(self) -> None:
+        bot = self._bot()
+        user = {"id": 1236, "is_bot": False}
+        asyncio.run(bot.process_update({"message": {"message_id": 9, "chat": {"id": 1236}, "from": user, "successful_payment": {"currency": "XTR", "total_amount": 100, "invoice_payload": "premium_monthly_100_stars_v1", "subscription_expiration_date": 2000000000, "is_recurring": True, "is_first_recurring": True, "telegram_payment_charge_id": "charge-1236"}}}))
+        self.assertTrue(bot.store.has_premium(1236))
+        self.assertIn("To‘lov tasdiqlandi", bot.telegram.sent[-1]["text"])
+
+    def test_pre_checkout_is_approved_only_for_known_payload(self) -> None:
+        bot = self._bot()
+        asyncio.run(bot.process_update({"pre_checkout_query": {"id": "pc-1", "invoice_payload": "premium_monthly_100_stars_v1"}}))
+        self.assertEqual(bot.telegram.pre_checkout_answers[-1], ("pc-1", True, None))
+
     def test_start_is_immediate_and_not_ai_or_pause(self) -> None:
         bot = self._bot()
         asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 8645314130}, "from": {"id": 8645314130}, "text": "/start"}}))
         self.assertIn("Salom!", bot.telegram.sent[-1]["text"])
-        self.assertIn("/admin", bot.telegram.sent[-1]["text"])
+        self.assertIn("/premium", bot.telegram.sent[-1]["text"])
 
     def test_admin_panel_is_only_available_to_admin(self) -> None:
         bot = self._bot()

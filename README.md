@@ -120,6 +120,14 @@ Buyruqlarni mijoz chatiga emas, botning o‘z shaxsiy chatiga yuboring. `/id` Te
 
 Xavfsizlik uchun `/rol` faqat `ADMIN_USER_ID` ga mos user tomonidan bajariladi. Admin ID `8645314130` sifatida berilgan. `DATABASE_URL` orqali Neon PostgreSQL ulangani sababli rol va suhbat tarixi yangi deploymentdan keyin ham saqlanadi. `telegram_settings` jadvalida global AI roli, `telegram_conversations` jadvalida har bir Business chat tarixi, `telegram_owner_pauses` jadvalida esa `business_connection_id + chat_id` bo‘yicha owner pause vaqti saqlanadi. Neon vaqtincha ishlamasa, bot xatoni logga yozib, javob oqimini xavfsiz fallback bilan davom ettiradi.
 
+## Premium subscription va Mangekyo promo
+
+Botning shaxsiy chatida `/premium` yuborilganda premium user paneli ochiladi. Oylik subscription 100 Telegram Stars turadi va `XTR` invoice orqali 30 kunlik recurring access beradi. Premium funksiyalar faqat Telegram `successful_payment` update’idan keyin ochiladi; pre-checkout bosqichi o‘zi access bermaydi. To‘lovlar Neon’dagi `telegram_star_payments` va `telegram_premium_access` jadvallarida saqlanadi.
+
+User avval `/start` yuborib, keyin `Mangekyo Sharingan` so‘zlarini aynan shu ko‘rinishda yozsa, promo bir marta ishlaydi va 30 kunlik bepul premium access beradi. Javob uch qatorda yuboriladi: `Sharingan faollashdi!`, `Endi siz botdan 1 oy bepul foydalanasiz!!!`, `/start /start /start`. Promo redemption Neon’da user ID bo‘yicha bir marta saqlanadi.
+
+Global `/rol` va owner admin paneli faqat `ADMIN_USER_ID=8645314130` uchun ochiq. Premium user o‘z AI uslubini `/myrole` yoki `/premiumrole` orqali alohida sozlaydi; bu global owner rolini o‘zgartirmaydi.
+
 ## Provider tanlash
 
 Manus ishlatish uchun `AI_PROVIDER=manus` va `MANUS_API_KEY` yetarli. Manus v2 tasklari asinxron bo‘lgani sabab adapter task yaratadi, statusni tekshiradi va `assistant_message` natijasini oladi. OpenAI uchun `AI_PROVIDER=openai`, Qwen uchun `AI_PROVIDER=qwen` tanlang. `auto` rejimida OpenAI, Qwen va Manus shu tartibda fallback sifatida ishlaydi.

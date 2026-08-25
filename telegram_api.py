@@ -98,6 +98,86 @@ class TelegramBotApi:
             },
         )
 
+    async def create_invoice_link(
+        self,
+        title: str,
+        description: str,
+        payload: str,
+        amount: int,
+        subscription_period: int,
+    ) -> str:
+        result = await self.call(
+            "createInvoiceLink",
+            {
+                "title": title,
+                "description": description,
+                "payload": payload,
+                "provider_token": "",
+                "currency": "XTR",
+                "prices": [{"label": title, "amount": amount}],
+                "subscription_period": subscription_period,
+            },
+        )
+        if not isinstance(result, str) or not result:
+            raise TelegramApiError("Telegram invoice link qaytarmadi")
+        return result
+
+    async def send_invoice(
+        self,
+        chat_id: int,
+        title: str,
+        description: str,
+        payload: str,
+        amount: int,
+        subscription_period: int,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        invoice: dict[str, Any] = {
+            "chat_id": chat_id,
+            "title": title,
+            "description": description,
+            "payload": payload,
+            "provider_token": "",
+            "currency": "XTR",
+            "prices": [{"label": title, "amount": amount}],
+            "subscription_period": subscription_period,
+        }
+        if reply_markup is not None:
+            invoice["reply_markup"] = reply_markup
+        return await self.call("sendInvoice", invoice)
+
+    async def answer_pre_checkout_query(
+        self,
+        query_id: str,
+        ok: bool,
+        error_message: str | None = None,
+    ) -> Any:
+        payload: dict[str, Any] = {"pre_checkout_query_id": query_id, "ok": ok}
+        if error_message:
+            payload["error_message"] = error_message
+        return await self.call("answerPreCheckoutQuery", payload)
+
+    async def edit_user_star_subscription(
+        self,
+        user_id: int,
+        telegram_payment_charge_id: str,
+        is_canceled: bool,
+    ) -> Any:
+        return await self.call(
+            "editUserStarSubscription",
+            {
+                "user_id": user_id,
+                "telegram_payment_charge_id": telegram_payment_charge_id,
+                "is_canceled": is_canceled,
+            },
+        )
+
+    async def refund_star_payment(self, user_id: int, telegram_payment_charge_id: str) -> Any:
+        return await self.call(
+            "refundStarPayment",
+            {"user_id": user_id, "telegram_payment_charge_id": telegram_payment_charge_id},
+        )
+
     async def answer_callback_query(
         self,
         callback_query_id: str,
