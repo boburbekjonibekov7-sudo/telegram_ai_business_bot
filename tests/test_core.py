@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -46,6 +47,13 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(store.get_role("default"), "Rasmiy uslub")
         store.clear_role()
         self.assertEqual(store.get_role("default"), "default")
+
+    def test_owner_pause_expires_after_thirty_minutes(self) -> None:
+        store = MemoryStore()
+        store.mark_owner_activity("business:bc:1", time.time() - 60)
+        self.assertGreater(store.owner_pause_remaining("business:bc:1"), 1700)
+        store.mark_owner_activity("business:bc:1", time.time() - 1801)
+        self.assertEqual(store.owner_pause_remaining("business:bc:1"), 0)
 
 
 class ProviderSelectionTests(unittest.TestCase):

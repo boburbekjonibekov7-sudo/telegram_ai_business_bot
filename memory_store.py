@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from threading import Lock
 
 
@@ -14,6 +15,7 @@ class MemoryStore:
         self.max_history_messages = max_history_messages
         self.data: dict[str, list[dict[str, str]]] = {}
         self.role = ""
+        self.owner_activity: dict[str, float] = {}
         self.lock = Lock()
 
     def history(self, key: str, system_prompt: str) -> list[dict[str, str]]:
@@ -44,3 +46,15 @@ class MemoryStore:
     def clear_role(self) -> None:
         with self.lock:
             self.role = ""
+
+    def mark_owner_activity(self, key: str, timestamp: float | None = None) -> None:
+        with self.lock:
+            self.owner_activity[key] = timestamp if timestamp is not None else time.time()
+
+    def owner_pause_remaining(self, key: str, pause_seconds: int = 1800) -> int:
+        with self.lock:
+            last_activity = self.owner_activity.get(key)
+        if last_activity is None:
+            return 0
+        remaining = int(last_activity + pause_seconds - time.time())
+        return max(0, remaining)

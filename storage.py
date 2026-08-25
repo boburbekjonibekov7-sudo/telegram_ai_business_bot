@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -22,11 +23,14 @@ class JsonStore:
         try:
             loaded: Any = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
-                result: dict[str, Any] = {"__role__": str(loaded.get("__role__", ""))}
+                result: dict[str, Any] = {
+                    "__role__": str(loaded.get("__role__", "")),
+                    "__owner_activity__": loaded.get("__owner_activity__", {}) if isinstance(loaded.get("__owner_activity__", {}), dict) else {},
+                }
                 result.update({
                     str(key): value
                     for key, value in loaded.items()
-                    if key != "__role__" and isinstance(value, list)
+                    if key not in {"__role__", "__owner_activity__"} and isinstance(value, list)
                 })
                 return result
         except (OSError, json.JSONDecodeError):
@@ -78,3 +82,20 @@ class JsonStore:
         with self.lock:
             self.data["__role__"] = ""
             self._save()
+
+    def mark_owner_activity(self, key: str, timestamp: float | None = None) -> None:
+        with self.lock:
+            activity = self.data.setdefault("__owner_activity__", {})
+            if not isinstance(activity, dict):
+                activity = {}
+                self.data["__owner_activity__"] = activity
+            activity[key] = timestamp if timestamp is not None else time.time()
+            self._save()
+
+    def owner_pause_remaining(self, key: str, pause_seconds: int = 1800) -> int:
+        with self.lock:
+            activity = self.data.get("__owner_activity__", {})
+            last_activity = activity.get(key) if isinstance(activity, dict) else None
+        if not isinstance(last_activity, (int, float)):
+            return 0
+        return max(0, int(last_activity + pause_seconds - time.time()))

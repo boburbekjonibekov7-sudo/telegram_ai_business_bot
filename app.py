@@ -13,6 +13,7 @@ from telegram_api import TelegramApiError, TelegramBotApi
 
 
 LOGGER = logging.getLogger("telegram_ai_business_bot")
+OWNER_PAUSE_SECONDS = 30 * 60
 
 
 class BusinessAiBot:
@@ -227,6 +228,20 @@ class BusinessAiBot:
             return
 
         storage_key = self._storage_key(chat_id, business_connection_id)
+        if is_business and self._is_admin(message):
+            self.store.mark_owner_activity(storage_key)
+            LOGGER.info("Owner qo‘lda xabar yubordi; chat 30 daqiqaga pauzaga qo‘yildi: %s", storage_key)
+            return
+        if is_business:
+            remaining = self.store.owner_pause_remaining(storage_key, OWNER_PAUSE_SECONDS)
+            if remaining > 0:
+                LOGGER.info(
+                    "Avtomatik javob pauzada: %s, qolgan soniya=%s",
+                    storage_key,
+                    remaining,
+                )
+                return
+
         async with self.chat_locks[storage_key]:
             if text.lower() in {"/reset", "/clear"}:
                 self.store.clear(storage_key)

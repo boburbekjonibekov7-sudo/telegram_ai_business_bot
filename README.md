@@ -95,6 +95,10 @@ python3 app.py
 
 Mahalliy polling testida `WEBHOOK_SECRET` kerak emas. Vercel webhook testida esa alohida public HTTPS URL va Telegram `setWebhook` kerak bo‘ladi. Kod credentiallarsiz kompilyatsiya va unit testlardan o‘tkazilgan.
 
+## 30 daqiqalik qo‘lda yozish pauzasi
+
+Bot har bir Business chatni alohida kuzatadi. Agar akkaunt egasi userga qo‘lda xabar yuborsa, shu chatda avtomatik javoblar 30 daqiqaga pauzalanadi. User 30 daqiqa ichida yana yozsa, bot javob bermaydi. 30 daqiqa o‘tgach user qayta yozsa, bot yana avtomatik javob beradi. Egasi shu chatga yana yozsa, taymer qaytadan 30 daqiqaga boshlanadi. Botning o‘zi yuborgan xabar taymerni qayta boshlamaydi.
+
 ## Admin buyruqlari va AI roli
 
 Buyruqlarni mijoz chatiga emas, botning o‘z shaxsiy chatiga yuboring. `/id` Telegram user ID’ingizni ko‘rsatadi. `/rol Siz muloyim, qisqa va faqat o‘zbek tilida javob beradigan yordamchisiz.` buyrug‘i keyingi Business xabarlarga qo‘llanadigan AI uslubini saqlaydi. `/rol` joriy rolni ko‘rsatadi, `/rol reset` esa standart rolga qaytaradi. `/role` inglizcha alias sifatida ham ishlaydi.
