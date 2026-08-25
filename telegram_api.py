@@ -78,12 +78,56 @@ class TelegramBotApi:
             payload["business_connection_id"] = business_connection_id
         return await self.call("sendChatAction", payload)
 
+    async def delete_message(
+        self,
+        chat_id: int,
+        message_id: int,
+    ) -> Any:
+        return await self.call("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+
+    async def delete_business_messages(
+        self,
+        business_connection_id: str,
+        message_ids: list[int],
+    ) -> Any:
+        return await self.call(
+            "deleteBusinessMessages",
+            {
+                "business_connection_id": business_connection_id,
+                "message_ids": message_ids,
+            },
+        )
+
+    async def answer_callback_query(
+        self,
+        callback_query_id: str,
+        text: str | None = None,
+        show_alert: bool = False,
+    ) -> Any:
+        payload: dict[str, Any] = {"callback_query_id": callback_query_id, "show_alert": show_alert}
+        if text:
+            payload["text"] = text
+        return await self.call("answerCallbackQuery", payload)
+
+    async def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> Any:
+        payload: dict[str, Any] = {"chat_id": chat_id, "message_id": message_id, "text": text}
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        return await self.call("editMessageText", payload)
+
     async def send_message(
         self,
         chat_id: int,
         text: str,
         business_connection_id: str | None = None,
         reply_to_message_id: int | None = None,
+        reply_markup: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "chat_id": chat_id,
@@ -97,4 +141,6 @@ class TelegramBotApi:
                 "message_id": reply_to_message_id,
                 "allow_sending_without_reply": True,
             }
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
         return await self.call("sendMessage", payload)

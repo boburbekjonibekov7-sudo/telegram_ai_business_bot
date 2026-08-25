@@ -162,7 +162,68 @@ class RoleCommandTests(unittest.TestCase):
         bot.telegram = FakeTelegram()
         asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 999}, "from": {"id": 999}, "text": "/rol yomon"}}))
         self.assertEqual(bot.store.get_role("default"), "default")
-        self.assertIn("faqat akkaunt egasi", bot.telegram.sent[-1]["text"])
+        self.assertEqual(bot.telegram.sent[-1]["text"], "Siz admin emassiz.")
+
+
+class AdminPanelAndApkTests(unittest.TestCase):
+    class FakeTelegram:
+        def __init__(self):
+            self.sent = []
+            self.deleted = []
+            self.callback_answers = []
+
+        async def send_message(self, **kwargs):
+            self.sent.append(kwargs)
+            return {"message_id": 10}
+
+        async def delete_business_messages(self, business_connection_id, message_ids):
+            self.deleted.append((business_connection_id, message_ids))
+            return True
+
+        async def answer_callback_query(self, callback_query_id, text=None, show_alert=False):
+            self.callback_answers.append((callback_query_id, text, show_alert))
+            return True
+
+        async def edit_message_text(self, chat_id, message_id, text, reply_markup=None):
+            self.sent.append({"chat_id": chat_id, "message_id": message_id, "text": text, "reply_markup": reply_markup})
+            return True
+
+    class FakeAI:
+        async def answer(self, history):
+            return "AI javob", "fake"
+
+    def _bot(self):
+        settings = SimpleNamespace(
+            bot_token="dummy", ai_provider="manus", openai_api_key="", qwen_api_key="", manus_api_key="key",
+            openai_base_url="https://api.openai.com/v1", qwen_base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            openai_model="gpt-4o-mini", qwen_model="qwen-plus", manus_base_url="https://api.manus.ai",
+            manus_agent_profile="manus-1.6-lite", manus_max_wait_seconds=45, system_prompt="default",
+            data_dir=Path(tempfile.mkdtemp()), max_history_messages=12, send_error_message=False, admin_user_id=8645314130,
+        )
+        bot = BusinessAiBot(settings, store=MemoryStore())
+        bot.telegram = self.FakeTelegram()
+        bot.ai = self.FakeAI()
+        bot.connections["bc-1"] = {"id": "bc-1", "is_enabled": True, "rights": {"can_reply": True}}
+        return bot
+
+    def test_admin_panel_is_only_available_to_admin(self) -> None:
+        bot = self._bot()
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 9}, "from": {"id": 123}, "text": "/admin"}}))
+        self.assertEqual(bot.telegram.sent[-1]["text"], "Siz admin emassiz.")
+        asyncio.run(bot.process_update({"message": {"message_id": 2, "chat": {"id": 8645314130}, "from": {"id": 8645314130}, "text": "/admin"}}))
+        self.assertIn("Admin panel", bot.telegram.sent[-1]["text"])
+        self.assertTrue(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"])
+
+    def test_non_admin_callback_gets_access_denied(self) -> None:
+        bot = self._bot()
+        asyncio.run(bot.process_update({"callback_query": {"id": "cb-1", "from": {"id": 123}, "data": "admin:stats", "message": {"chat": {"id": 9}, "message_id": 10}}}))
+        self.assertEqual(bot.telegram.callback_answers[-1], ("cb-1", "Siz admin emassiz.", True))
+
+    def test_apk_business_message_is_deleted(self) -> None:
+        bot = self._bot()
+        asyncio.run(bot.process_update({"business_message": {"message_id": 22, "business_connection_id": "bc-1", "chat": {"id": 777}, "from": {"id": 555}, "document": {"file_name": "setup.apk", "mime_type": "application/vnd.android.package-archive"}}}))
+        self.assertEqual(bot.telegram.deleted, [("bc-1", [22])])
+        self.assertEqual(bot.telegram.sent, [])
 
 
 class ManualPauseFlowTests(unittest.TestCase):

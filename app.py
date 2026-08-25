@@ -85,6 +85,9 @@ class BusinessAiBot:
         if "business_connection" in update:
             self._cache_connection(update["business_connection"])
             return
+        if "callback_query" in update:
+            await self.handle_callback_query(update["callback_query"])
+            return
         if "business_message" in update:
             message = update["business_message"]
             LOGGER.info(
@@ -107,10 +110,6 @@ class BusinessAiBot:
         if not connection_id:
             return
         self.connections[str(connection_id)] = connection
-        owner = connection.get("user") or {}
-        owner_id = owner.get("id") or connection.get("user_chat_id")
-        if isinstance(owner_id, int):
-            self.admin_user_ids.add(owner_id)
         if connection.get("is_enabled") is False:
             LOGGER.info("Business ulanish o‘chirildi: %s", connection_id)
         else:
@@ -170,15 +169,16 @@ class BusinessAiBot:
             await self._send_chunks(chat_id, f"Sizning Telegram user ID: {sender_id}", None, reply_to)
             return True
 
+        if command == "/admin":
+            if not self._is_admin(message):
+                await self._send_chunks(chat_id, "Siz admin emassiz.", None, reply_to)
+                return True
+            await self._send_chunks(chat_id, self._admin_panel_text(), None, reply_to, self._admin_panel_keyboard())
+            return True
         if command not in {"/rol", "/role"}:
             return False
         if not self._is_admin(message):
-            await self._send_chunks(
-                chat_id,
-                "Bu buyruq faqat akkaunt egasi uchun. Avval /id orqali ID’ingizni oling va Vercel’da ADMIN_USER_ID qilib kiriting.",
-                None,
-                reply_to,
-            )
+            await self._send_chunks(chat_id, "Siz admin emassiz.", None, reply_to)
             return True
         if not argument:
             current = self.store.get_role(self.settings.system_prompt)
@@ -207,7 +207,7 @@ class BusinessAiBot:
             return
         text = self._message_text(message)
         chat_id = self._chat_id(message)
-        if not text or chat_id is None:
+        if chat_id is None:
             return
 
         business_connection_id = message.get("business_connection_id") if is_business else None
@@ -226,7 +226,13 @@ class BusinessAiBot:
                     business_connection_id,
                 )
                 return
+            if self._is_apk_message(message) and not self._is_admin(message):
+                await self._delete_business_apk(message, business_connection_id)
+                return
 
+        text = self._message_text(message)
+        if not text:
+            return
         if not is_business and await self._handle_admin_command(message, text, chat_id):
             return
 
@@ -294,6 +300,86 @@ class BusinessAiBot:
             remaining = max(remaining, self.pause_store.owner_pause_remaining(key, pause_seconds))
         return remaining
 
+    async def handle_callback_query(self, callback: dict[str, Any]) -> None:
+        sender = callback.get("from") or {}
+        user_id = sender.get("id")
+        callback_id = callback.get("id")
+        if not isinstance(callback_id, str):
+            return
+        if not isinstance(user_id, int) or user_id not in self.admin_user_ids:
+            await self.telegram.answer_callback_query(callback_id, "Siz admin emassiz.", True)
+            return
+        data = str(callback.get("data") or "")
+        message = callback.get("message") or {}
+        chat_id = self._chat_id(message)
+        message_id = message.get("message_id")
+        await self.telegram.answer_callback_query(callback_id)
+        if not isinstance(chat_id, int) or not isinstance(message_id, int):
+            return
+        if data in {"admin:home", "admin:stats", "admin:role", "admin:pause"}:
+            if data == "admin:stats":
+                text = self._admin_stats_text()
+                markup = self._admin_back_keyboard()
+            elif data == "admin:role":
+                text = "🧠 AI roli\n\n" + self.store.get_role("Standart rol faol.")
+                markup = {"inline_keyboard": [[{"text": "♻️ Rolni tozalash", "callback_data": "admin:role:reset"}], [{"text": "🔙 Admin panel", "callback_data": "admin:home"}]]}
+            elif data == "admin:pause":
+                text = "⏱ Manual pause\n\nHar bir chatda egasi qo‘lda yozganidan keyin AI javobi 30 daqiqaga to‘xtaydi."
+                markup = self._admin_back_keyboard()
+            else:
+                text = self._admin_panel_text()
+                markup = self._admin_panel_keyboard()
+            try:
+                await self.telegram.edit_message_text(chat_id, message_id, text, markup)
+            except TelegramApiError:
+                await self._send_chunks(chat_id, text, None, None, markup)
+            return
+        if data == "admin:role:reset":
+            self.store.clear_role()
+            try:
+                await self.telegram.edit_message_text(chat_id, message_id, "✅ AI roli standart holatga qaytarildi.", self._admin_back_keyboard())
+            except TelegramApiError:
+                await self._send_chunks(chat_id, "✅ AI roli standart holatga qaytarildi.", None, None, self._admin_back_keyboard())
+
+    def _admin_panel_text(self) -> str:
+        return "👮 Admin panel\n\nKerakli bo‘limni tanlang:"
+
+    def _admin_panel_keyboard(self) -> dict[str, Any]:
+        return {"inline_keyboard": [
+            [{"text": "📊 Statistika", "callback_data": "admin:stats"}],
+            [{"text": "🧠 AI roli", "callback_data": "admin:role"}],
+            [{"text": "⏱ Pause holati", "callback_data": "admin:pause"}],
+        ]}
+
+    def _admin_back_keyboard(self) -> dict[str, Any]:
+        return {"inline_keyboard": [[{"text": "🔙 Admin panel", "callback_data": "admin:home"}]]}
+
+    def _admin_stats_text(self) -> str:
+        chats = len(getattr(self.store, "data", {}))
+        pauses = len(getattr(self.store, "owner_activity", {}))
+        provider = getattr(self.settings, "ai_provider", "unknown")
+        return f"📊 Statistika\n\n💬 Xotiradagi chatlar: {chats}\n⏱ Pause yozuvlari: {pauses}\n🤖 AI provider: {provider}"
+
+    @staticmethod
+    def _is_apk_message(message: dict[str, Any]) -> bool:
+        document = message.get("document") or {}
+        if not isinstance(document, dict):
+            return False
+        filename = str(document.get("file_name") or "").lower()
+        mime_type = str(document.get("mime_type") or "").lower()
+        return filename.endswith(".apk") or mime_type == "application/vnd.android.package-archive"
+
+    async def _delete_business_apk(self, message: dict[str, Any], business_connection_id: str) -> None:
+        message_id = message.get("message_id")
+        chat_id = self._chat_id(message)
+        if not isinstance(message_id, int) or not isinstance(chat_id, int):
+            return
+        try:
+            await self.telegram.delete_business_messages(business_connection_id, [message_id])
+            LOGGER.info("APK Business xabari ikki tomon uchun o‘chirildi: chat_id=%s message_id=%s", chat_id, message_id)
+        except TelegramApiError as exc:
+            LOGGER.error("APK xabarini o‘chirib bo‘lmadi: %s", exc)
+
     @staticmethod
     def _storage_key(chat_id: int, business_connection_id: str | None) -> str:
         prefix = f"business:{business_connection_id}" if business_connection_id else "normal"
@@ -305,6 +391,7 @@ class BusinessAiBot:
         text: str,
         business_connection_id: str | None,
         reply_to_message_id: int | None,
+        reply_markup: dict[str, Any] | None = None,
     ) -> None:
         chunks = [text[i : i + 4000] for i in range(0, len(text), 4000)] or ["…"]
         for index, chunk in enumerate(chunks):
@@ -313,6 +400,7 @@ class BusinessAiBot:
                 text=chunk,
                 business_connection_id=business_connection_id,
                 reply_to_message_id=reply_to_message_id if index == 0 else None,
+                reply_markup=reply_markup if index == 0 else None,
             )
 
     def stop(self) -> None:
