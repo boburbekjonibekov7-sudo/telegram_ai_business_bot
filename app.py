@@ -20,8 +20,7 @@ OWNER_PAUSE_SECONDS = 30 * 60
 STAR_SUBSCRIPTION_AMOUNT = 100
 STAR_SUBSCRIPTION_PERIOD_SECONDS = 30 * 24 * 60 * 60
 STAR_SUBSCRIPTION_PAYLOAD = "premium_monthly_100_stars_v1"
-MANGEKYO_PROMO_CODE = "mangekyo sharingan"
-MANGEKYO_PROMO_CODES = {"mangekyo sharingan", "mangenkyo sharingan"}
+MANGEKYO_PROMO_CODE = "mangenkyo sharingan"
 MANGEKYO_PROMO_REPLY = "Sharingan faollashdi!\nEndi siz botdan 1 oy bepul foydalanasiz!!!\n/start /start /start"
 PROMO_SILENT_REPLY = "So‘rov bajarilmadi."
 
@@ -170,12 +169,12 @@ class BusinessAiBot:
 
     @classmethod
     def _is_promo_trigger(cls, text: str) -> bool:
-        return cls._normalized_text(text) in MANGEKYO_PROMO_CODES
+        return cls._normalized_text(text) == MANGEKYO_PROMO_CODE
 
     @classmethod
     def _is_promo_inquiry(cls, text: str) -> bool:
         normalized = cls._normalized_text(text)
-        if normalized in MANGEKYO_PROMO_CODES:
+        if normalized == MANGEKYO_PROMO_CODE:
             return False
         return any(term in normalized for term in ("promo", "promokod", "promo code", "mangekyo", "sharingan"))
 
@@ -208,13 +207,15 @@ class BusinessAiBot:
 
         if command == "/start":
             sender_id = self._user_id(message)
+            if sender_id == OWNER_ADMIN_ID:
+                return False
             if sender_id is not None:
                 marker = getattr(self.store, "mark_started", None)
                 if callable(marker):
                     marker(sender_id)
             await self._send_chunks(
                 chat_id,
-                "Salom! Men Telegram Business chatlaringizga javob beraman.\n\nPremium: /premium\nTelegram ID: /id",
+                "Salom! Telegram Business chatlaringizga avtomatik javob beraman.\n\nPremium: /premium\nTelegram ID: /id",
                 None,
                 reply_to,
             )
@@ -241,16 +242,22 @@ class BusinessAiBot:
             await self._send_chunks(chat_id, f"Sizning Telegram user ID: {sender_id}", None, reply_to)
             return True
 
+        sender_id = self._user_id(message)
+        is_owner = sender_id == OWNER_ADMIN_ID
+        is_premium = sender_id is not None and self._has_premium(sender_id)
         if command == "/admin":
-            if not self._is_admin(message):
+            if not is_owner and not is_premium:
                 await self._send_chunks(chat_id, "Siz admin emassiz.", None, reply_to)
                 return True
-            await self._send_chunks(chat_id, self._admin_panel_text(), None, reply_to, self._admin_panel_keyboard())
+            await self._send_chunks(chat_id, self._admin_panel_text(), None, reply_to, self._admin_panel_keyboard(include_statistics=is_owner))
             return True
         if command not in {"/rol", "/role"}:
             return False
-        if not self._is_admin(message):
+        if not is_owner and not is_premium:
             await self._send_chunks(chat_id, "Siz admin emassiz.", None, reply_to)
+            return True
+        if not is_owner:
+            await self._handle_premium_role(message, argument, chat_id, reply_to)
             return True
         if not argument:
             current = self.store.get_role(self.settings.system_prompt)
@@ -308,15 +315,15 @@ class BusinessAiBot:
         if not is_business and await self._handle_admin_command(message, text, chat_id):
             return
 
-        if not is_business and self._is_promo_trigger(text):
+        user_id = self._user_id(message)
+        if not is_business and user_id != OWNER_ADMIN_ID and self._is_promo_trigger(text):
             await self._handle_mangekyo_promo(message, chat_id)
             return
-        if not is_business and self._is_promo_inquiry(text):
+        if not is_business and user_id != OWNER_ADMIN_ID and self._is_promo_inquiry(text):
             await self._send_chunks(chat_id, PROMO_SILENT_REPLY, None, message.get("message_id"))
             return
 
-        user_id = self._user_id(message)
-        if not is_business and user_id not in self.admin_user_ids and not self._has_premium(user_id):
+        if not is_business and user_id != OWNER_ADMIN_ID and not self._has_premium(user_id):
             await self._send_premium_panel(chat_id, user_id, message.get("message_id"))
             return
 
@@ -395,9 +402,13 @@ class BusinessAiBot:
         message = callback.get("message") or {}
         chat_id = self._chat_id(message)
         message_id = message.get("message_id")
-        is_admin = isinstance(user_id, int) and user_id in self.admin_user_ids
-        if data.startswith("admin:") and not is_admin:
+        is_owner = isinstance(user_id, int) and user_id == OWNER_ADMIN_ID
+        is_premium = isinstance(user_id, int) and self._has_premium(user_id)
+        if data.startswith("admin:") and not (is_owner or is_premium):
             await self.telegram.answer_callback_query(callback_id, "Siz admin emassiz.", True)
+            return
+        if data == "admin:stats" and not is_owner:
+            await self.telegram.answer_callback_query(callback_id, "Bu bo‘lim faqat owner uchun.", True)
             return
         await self.telegram.answer_callback_query(callback_id)
         if not isinstance(chat_id, int) or not isinstance(message_id, int):
@@ -416,7 +427,13 @@ class BusinessAiBot:
                 text = self._admin_stats_text()
                 markup = self._admin_back_keyboard()
             elif data == "admin:role":
-                text = "🧠 AI roli\n\n" + self.store.get_role("Standart rol faol.")
+                if is_owner:
+                    role = self.store.get_role("Standart rol faol.")
+                    text = "🧠 AI roli\n\n" + role
+                else:
+                    getter = getattr(self.store, "get_user_role", None)
+                    role = getter(user_id, "") if callable(getter) else ""
+                    text = "🧠 Shaxsiy AI roli\n\n" + (role or "Standart rol faol.")
                 markup = {"inline_keyboard": [[{"text": "♻️ Rolni tozalash", "callback_data": "admin:role:reset"}], [{"text": "🔙 Admin panel", "callback_data": "admin:home"}]]}
             elif data in {"admin:pause", "admin:pause:toggle"}:
                 if data == "admin:pause:toggle":
@@ -427,18 +444,25 @@ class BusinessAiBot:
                 markup = self._admin_pause_keyboard(enabled)
             else:
                 text = self._admin_panel_text()
-                markup = self._admin_panel_keyboard()
+                markup = self._admin_panel_keyboard(include_statistics=is_owner)
             try:
                 await self.telegram.edit_message_text(chat_id, message_id, text, markup)
             except TelegramApiError:
                 await self._send_chunks(chat_id, text, None, None, markup)
             return
         if data == "admin:role:reset":
-            self.store.clear_role()
+            if is_owner:
+                self.store.clear_role()
+                reset_text = "✅ AI roli standart holatga qaytarildi."
+            else:
+                clearer = getattr(self.store, "clear_user_role", None)
+                if callable(clearer):
+                    clearer(user_id)
+                reset_text = "✅ Shaxsiy AI roli standart holatga qaytarildi."
             try:
-                await self.telegram.edit_message_text(chat_id, message_id, "✅ AI roli standart holatga qaytarildi.", self._admin_back_keyboard())
+                await self.telegram.edit_message_text(chat_id, message_id, reset_text, self._admin_back_keyboard())
             except TelegramApiError:
-                await self._send_chunks(chat_id, "✅ AI roli standart holatga qaytarildi.", None, None, self._admin_back_keyboard())
+                await self._send_chunks(chat_id, reset_text, None, None, self._admin_back_keyboard())
 
     def _has_premium(self, user_id: int | None) -> bool:
         if user_id is None:
@@ -591,13 +615,16 @@ class BusinessAiBot:
     def _admin_panel_text(self) -> str:
         return "👮 Admin panel\n\nKerakli bo‘limni tanlang:"
 
-    def _admin_panel_keyboard(self) -> dict[str, Any]:
+    def _admin_panel_keyboard(self, include_statistics: bool = True) -> dict[str, Any]:
         pause_label = "⏱ Pause: YOQILGAN" if self._manual_pause_enabled() else "⏱ Pause: O‘CHIRILGAN"
-        return {"inline_keyboard": [
-            [{"text": "📊 Statistika", "callback_data": "admin:stats"}],
+        rows: list[list[dict[str, str]]] = []
+        if include_statistics:
+            rows.append([{"text": "📊 Statistika", "callback_data": "admin:stats"}])
+        rows.extend([
             [{"text": "🧠 AI roli", "callback_data": "admin:role"}],
             [{"text": pause_label, "callback_data": "admin:pause"}],
-        ]}
+        ])
+        return {"inline_keyboard": rows}
 
     def _admin_pause_keyboard(self, enabled: bool) -> dict[str, Any]:
         toggle_label = "⏸ O‘chirish" if enabled else "▶️ Yoqish"
