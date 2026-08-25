@@ -11,6 +11,7 @@ from config import Settings
 from storage import JsonStore
 from telegram_api import TelegramApiError, TelegramBotApi
 from pause_store import UpstashPauseStore
+from postgres_pause_store import PostgresPauseStore
 
 
 LOGGER = logging.getLogger("telegram_ai_business_bot")
@@ -23,7 +24,7 @@ class BusinessAiBot:
         self.telegram = TelegramBotApi(settings.bot_token)
         self.ai = AIService(settings)
         self.store = store or JsonStore(settings.data_dir, settings.max_history_messages)
-        self.pause_store = UpstashPauseStore.from_env()
+        self.pause_store = PostgresPauseStore.from_env() or UpstashPauseStore.from_env()
         self.connections: dict[str, dict[str, Any]] = {}
         self.admin_user_ids: set[int] = (
             {settings.admin_user_id} if settings.admin_user_id is not None else set()

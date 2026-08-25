@@ -29,6 +29,7 @@ Bot @BotFather’da Business Mode yoki profile Chat Automation bilan ishlashga r
 | `memory_store.py` | Vercel uchun vaqtinchalik xotira storage’i |
 | `storage.py` | Lokal ishlashda JSON suhbat storage’i |
 | `pause_store.py` | Optional Upstash Redis REST orqali durable owner-pause storage’i |
+| `postgres_pause_store.py` | Neon PostgreSQL orqali durable owner-pause storage’i |
 | `config.py` | Environment variable konfiguratsiyasi |
 | `vercel.json` | Vercel Python build va route sozlamalari |
 | `.env.example` | Lokal namuna konfiguratsiyasi |
@@ -54,8 +55,9 @@ Vercel project’ning **Settings → Environment Variables** bo‘limida Product
 | `MAX_HISTORY_MESSAGES` | Yo‘q | Default `12` |
 | `SEND_ERROR_MESSAGE` | Yo‘q | Default `true` |
 | `MANUAL_REPLY_PAUSE_SECONDS` | Yo‘q | Default `1800` (30 daqiqa) |
-| `UPSTASH_REDIS_REST_URL` | Tavsiya qilinadi | Upstash Redis REST endpointi; Vercel cold startlarida pause holatini saqlaydi |
-| `UPSTASH_REDIS_REST_TOKEN` | Tavsiya qilinadi | Upstash Redis REST tokeni |
+| `DATABASE_URL` | Tavsiya qilinadi | Neon PostgreSQL connection string; Vercel cold startlarida pause holatini saqlaydi |
+| `UPSTASH_REDIS_REST_URL` | Muqobil | Neon ishlatilmasa Upstash Redis REST endpointi |
+| `UPSTASH_REDIS_REST_TOKEN` | Muqobil | Neon ishlatilmasa Upstash Redis REST tokeni |
 
 Vercel’ning Production URL’i avtomatik ravishda `VERCEL_PROJECT_PRODUCTION_URL` orqali olinadi. Zarur bo‘lsa `PUBLIC_BASE_URL` ni `https://your-project.vercel.app` ko‘rinishida qo‘shish mumkin. URL oxirida `/` bo‘lmasin.
 
@@ -107,7 +109,7 @@ Bot har bir Business chatni alohida kuzatadi. Agar akkaunt egasi userga qo‘lda
 
 Buyruqlarni mijoz chatiga emas, botning o‘z shaxsiy chatiga yuboring. `/id` Telegram user ID’ingizni ko‘rsatadi. `/rol Siz muloyim, qisqa va faqat o‘zbek tilida javob beradigan yordamchisiz.` buyrug‘i keyingi Business xabarlarga qo‘llanadigan AI uslubini saqlaydi. `/rol` joriy rolni ko‘rsatadi, `/rol reset` esa standart rolga qaytaradi. `/role` inglizcha alias sifatida ham ishlaydi.
 
-Xavfsizlik uchun `/rol` faqat `ADMIN_USER_ID` ga mos user yoki faol Business ulanishining akkaunt egasi tomonidan bajariladi. Agar bot “faqat akkaunt egasi” desa, avval `/id` ni yuboring va Vercel Environment Variables’da `ADMIN_USER_ID` sifatida shu ID’ni kiriting, keyin yangi deployment qiling. Vercel serverless xotirasida rol hot instance davomida saqlanadi; doimiy saqlash kerak bo‘lsa, Redis yoki Postgres adapteri kerak bo‘ladi. Pause taymerining cold startdan keyin ham aniq ishlashi uchun `UPSTASH_REDIS_REST_URL` va `UPSTASH_REDIS_REST_TOKEN` ni Production environment’ga kiriting; adapter Redis key’iga 1800 soniyalik TTL qo‘yadi. Bu credentiallar berilmasa, lokal memory fallback ishlaydi va Vercel instance almashtirilganda pause holati yo‘qolishi mumkin.
+Xavfsizlik uchun `/rol` faqat `ADMIN_USER_ID` ga mos user yoki faol Business ulanishining akkaunt egasi tomonidan bajariladi. Agar bot “faqat akkaunt egasi” desa, avval `/id` ni yuboring va Vercel Environment Variables’da `ADMIN_USER_ID` sifatida shu ID’ni kiriting, keyin yangi deployment qiling. Vercel serverless xotirasida rol hot instance davomida saqlanadi; doimiy saqlash kerak bo‘lsa, Redis yoki Postgres adapteri kerak bo‘ladi. Pause taymerining cold startdan keyin ham aniq ishlashi uchun `DATABASE_URL` orqali Neon PostgreSQL’ni Production environment’ga ulang. Dastur `telegram_owner_pauses` jadvalidan foydalanadi va `business_connection_id + chat_id` bo‘yicha oxirgi owner xabar vaqtini saqlaydi. `DATABASE_URL` bo‘lmasa, muqobil Upstash Redis o‘zgaruvchilari ishlatiladi; ikkalasi ham bo‘lmasa, lokal memory fallback qoladi va Vercel instance almashtirilganda pause holati yo‘qolishi mumkin.
 
 ## Provider tanlash
 
