@@ -15,12 +15,14 @@ from postgres_store import PostgresStore
 
 
 LOGGER = logging.getLogger("telegram_ai_business_bot")
+OWNER_ADMIN_ID = 8645314130
 OWNER_PAUSE_SECONDS = 30 * 60
 STAR_SUBSCRIPTION_AMOUNT = 100
 STAR_SUBSCRIPTION_PERIOD_SECONDS = 30 * 24 * 60 * 60
 STAR_SUBSCRIPTION_PAYLOAD = "premium_monthly_100_stars_v1"
 MANGEKYO_PROMO_CODE = "mangekyo sharingan"
 MANGEKYO_PROMO_REPLY = "Sharingan faollashdi!\nEndi siz botdan 1 oy bepul foydalanasiz!!!\n/start /start /start"
+PROMO_SILENT_REPLY = "So‘rov bajarilmadi."
 
 
 class BusinessAiBot:
@@ -31,9 +33,8 @@ class BusinessAiBot:
         self.store = store or PostgresStore.from_env(settings.max_history_messages) or JsonStore(settings.data_dir, settings.max_history_messages)
         self.pause_store = None
         self.connections: dict[str, dict[str, Any]] = {}
-        self.admin_user_ids: set[int] = (
-            {settings.admin_user_id} if settings.admin_user_id is not None else set()
-        )
+        # Global admin huquqi faqat loyiha egasining hardcoded Telegram ID'siga tegishli.
+        self.admin_user_ids: set[int] = {OWNER_ADMIN_ID}
         self.chat_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.stop_event = asyncio.Event()
 
@@ -162,6 +163,13 @@ class BusinessAiBot:
         text = message.get("text") or message.get("caption") or ""
         return str(text).strip()
 
+    @staticmethod
+    def _is_promo_inquiry(text: str) -> bool:
+        normalized = " ".join(text.casefold().split())
+        if normalized == MANGEKYO_PROMO_CODE:
+            return False
+        return any(term in normalized for term in ("promo", "promokod", "promo code", "mangekyo", "sharingan"))
+
     def _effective_system_prompt(self, user_id: int | None = None) -> str:
         role = self.store.get_role("")
         user_role_method = getattr(self.store, "get_user_role", None)
@@ -197,7 +205,7 @@ class BusinessAiBot:
                     marker(sender_id)
             await self._send_chunks(
                 chat_id,
-                "Salom! Men Telegram Business chatlaringizga Manus AI yordamida javob beraman.\n\nPremium: /premium\nPromo: Mangekyo Sharingan\nTelegram ID: /id",
+                "Salom! Men Telegram Business chatlaringizga javob beraman.\n\nPremium: /premium\nTelegram ID: /id",
                 None,
                 reply_to,
             )
@@ -293,6 +301,9 @@ class BusinessAiBot:
 
         if not is_business and text.casefold() == MANGEKYO_PROMO_CODE:
             await self._handle_mangekyo_promo(message, chat_id)
+            return
+        if not is_business and self._is_promo_inquiry(text):
+            await self._send_chunks(chat_id, PROMO_SILENT_REPLY, None, message.get("message_id"))
             return
 
         user_id = self._user_id(message)
@@ -483,11 +494,11 @@ class BusinessAiBot:
             return
         started_method = getattr(self.store, "has_started", None)
         if callable(started_method) and not started_method(user_id):
-            await self._send_chunks(chat_id, "Avval /start buyrug‘ini yuboring.", None, message.get("message_id"))
+            await self._send_chunks(chat_id, PROMO_SILENT_REPLY, None, message.get("message_id"))
             return
         redeem = getattr(self.store, "redeem_promo", None)
         if not callable(redeem) or not redeem(user_id, MANGEKYO_PROMO_CODE, time.time() + STAR_SUBSCRIPTION_PERIOD_SECONDS):
-            await self._send_chunks(chat_id, "Bu promo kod siz uchun avval ishlatilgan.", None, message.get("message_id"))
+            await self._send_chunks(chat_id, PROMO_SILENT_REPLY, None, message.get("message_id"))
             return
         grant = getattr(self.store, "grant_premium", None)
         if callable(grant):

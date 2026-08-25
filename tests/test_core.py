@@ -153,14 +153,14 @@ class RoleCommandTests(unittest.TestCase):
             data_dir=Path(tempfile.mkdtemp()),
             max_history_messages=12,
             send_error_message=False,
-            admin_user_id=123,
+            admin_user_id=8645314130,
         )
         bot = BusinessAiBot(settings, store=MemoryStore())
         bot.telegram = FakeTelegram()
-        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 123}, "from": {"id": 123}, "text": "/rol Qisqa va rasmiy javob ber"}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 8645314130}, "from": {"id": 8645314130}, "text": "/rol Qisqa va rasmiy javob ber"}}))
         self.assertEqual(bot.store.get_role("default"), "Qisqa va rasmiy javob ber")
         self.assertIn("Yangi rol saqlandi", bot.telegram.sent[-1]["text"])
-        asyncio.run(bot.process_update({"message": {"message_id": 2, "chat": {"id": 123}, "from": {"id": 123}, "text": "/rol reset"}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 2, "chat": {"id": 8645314130}, "from": {"id": 8645314130}, "text": "/rol reset"}}))
         self.assertEqual(bot.store.get_role("default"), "default")
 
     def test_non_admin_cannot_set_role(self) -> None:
@@ -253,7 +253,7 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertIn("Sharingan faollashdi!\nEndi siz botdan 1 oy bepul foydalanasiz!!!\n/start /start /start", bot.telegram.sent[-1]["text"])
         self.assertTrue(bot.store.has_premium(1234))
         asyncio.run(bot.process_update({"message": {"message_id": 3, "chat": {"id": 1234}, "from": user, "text": "Mangekyo Sharingan"}}))
-        self.assertIn("avval ishlatilgan", bot.telegram.sent[-1]["text"])
+        self.assertEqual(bot.telegram.sent[-1]["text"], "So‘rov bajarilmadi.")
 
     def test_non_premium_user_gets_subscription_invoice_link(self) -> None:
         bot = self._bot()
@@ -277,11 +277,31 @@ class AdminPanelAndApkTests(unittest.TestCase):
         asyncio.run(bot.process_update({"pre_checkout_query": {"id": "pc-1", "invoice_payload": "premium_monthly_100_stars_v1"}}))
         self.assertEqual(bot.telegram.pre_checkout_answers[-1], ("pc-1", True, None))
 
-    def test_start_is_immediate_and_not_ai_or_pause(self) -> None:
+    def test_start_is_immediate_and_does_not_reveal_provider_or_promo(self) -> None:
         bot = self._bot()
         asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 8645314130}, "from": {"id": 8645314130}, "text": "/start"}}))
-        self.assertIn("Salom!", bot.telegram.sent[-1]["text"])
-        self.assertIn("/premium", bot.telegram.sent[-1]["text"])
+        start_text = bot.telegram.sent[-1]["text"]
+        self.assertIn("Salom!", start_text)
+        self.assertIn("/premium", start_text)
+        self.assertNotIn("Manus", start_text)
+        self.assertNotIn("promo", start_text.casefold())
+        self.assertNotIn("Mangekyo", start_text)
+
+    def test_promo_inquiries_are_silent(self) -> None:
+        bot = self._bot()
+        user = {"id": 1237, "is_bot": False}
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1237}, "from": user, "text": "/start"}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 2, "chat": {"id": 1237}, "from": user, "text": "Promo kod bormi?"}}))
+        self.assertEqual(bot.telegram.sent[-1]["text"], "So‘rov bajarilmadi.")
+        self.assertNotIn("Mangekyo", bot.telegram.sent[-1]["text"])
+
+    def test_owner_id_is_fixed_even_if_settings_contains_another_admin(self) -> None:
+        bot = self._bot()
+        bot.settings.admin_user_id = 123
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 123}, "from": {"id": 123}, "text": "/admin"}}))
+        self.assertEqual(bot.telegram.sent[-1]["text"], "Siz admin emassiz.")
+        asyncio.run(bot.process_update({"message": {"message_id": 2, "chat": {"id": 8645314130}, "from": {"id": 8645314130}, "text": "/admin"}}))
+        self.assertIn("Admin panel", bot.telegram.sent[-1]["text"])
 
     def test_admin_panel_is_only_available_to_admin(self) -> None:
         bot = self._bot()
