@@ -10,6 +10,7 @@ from ai_providers import AIService, ProviderError
 from config import Settings
 from storage import JsonStore
 from telegram_api import TelegramApiError, TelegramBotApi
+from pause_store import UpstashPauseStore
 
 
 LOGGER = logging.getLogger("telegram_ai_business_bot")
@@ -22,6 +23,7 @@ class BusinessAiBot:
         self.telegram = TelegramBotApi(settings.bot_token)
         self.ai = AIService(settings)
         self.store = store or JsonStore(settings.data_dir, settings.max_history_messages)
+        self.pause_store = UpstashPauseStore.from_env()
         self.connections: dict[str, dict[str, Any]] = {}
         self.admin_user_ids: set[int] = (
             {settings.admin_user_id} if settings.admin_user_id is not None else set()
@@ -228,12 +230,13 @@ class BusinessAiBot:
             return
 
         storage_key = self._storage_key(chat_id, business_connection_id)
+        pause_seconds = max(1, int(getattr(self.settings, "manual_pause_seconds", OWNER_PAUSE_SECONDS)))
         if is_business and self._is_admin(message):
-            self.store.mark_owner_activity(storage_key)
-            LOGGER.info("Owner qo‘lda xabar yubordi; chat 30 daqiqaga pauzaga qo‘yildi: %s", storage_key)
+            self._mark_owner_activity(storage_key)
+            LOGGER.info("Owner qo‘lda xabar yubordi; chat %s soniyaga pauzaga qo‘yildi: %s", pause_seconds, storage_key)
             return
         if is_business:
-            remaining = self.store.owner_pause_remaining(storage_key, OWNER_PAUSE_SECONDS)
+            remaining = self._owner_pause_remaining(storage_key, pause_seconds)
             if remaining > 0:
                 LOGGER.info(
                     "Avtomatik javob pauzada: %s, qolgan soniya=%s",
@@ -278,6 +281,17 @@ class BusinessAiBot:
                 business_connection_id,
                 message.get("message_id"),
             )
+
+    def _mark_owner_activity(self, key: str) -> None:
+        self.store.mark_owner_activity(key)
+        if self.pause_store is not None:
+            self.pause_store.mark_owner_activity(key)
+
+    def _owner_pause_remaining(self, key: str, pause_seconds: int) -> int:
+        remaining = self.store.owner_pause_remaining(key, pause_seconds)
+        if self.pause_store is not None:
+            remaining = max(remaining, self.pause_store.owner_pause_remaining(key, pause_seconds))
+        return remaining
 
     @staticmethod
     def _storage_key(chat_id: int, business_connection_id: str | None) -> str:

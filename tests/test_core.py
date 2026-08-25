@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 from ai_providers import AIService, ManusProvider
 from memory_store import MemoryStore
+from pause_store import UpstashPauseStore
 from storage import JsonStore
 from app import BusinessAiBot
 from telegram_api import TelegramBotApi
@@ -54,6 +55,22 @@ class StorageTests(unittest.TestCase):
         self.assertGreater(store.owner_pause_remaining("business:bc:1"), 1700)
         store.mark_owner_activity("business:bc:1", time.time() - 1801)
         self.assertEqual(store.owner_pause_remaining("business:bc:1"), 0)
+
+
+class PauseStoreTests(unittest.TestCase):
+    def test_upstash_pause_uses_ttl_and_calculates_remaining(self) -> None:
+        store = UpstashPauseStore("https://redis.example", "token")
+        calls = []
+
+        def fake_request(command, key, value=None, query=None):
+            calls.append((command, key, value, query))
+            return str(time.time() - 60) if command == "get" else "OK"
+
+        store._request = fake_request  # type: ignore[method-assign]
+        store.mark_owner_activity("business:bc:1", time.time())
+        self.assertEqual(calls[0][0], "set")
+        self.assertEqual(calls[0][3], "EX=1800")
+        self.assertGreater(store.owner_pause_remaining("business:bc:1"), 1700)
 
 
 class ProviderSelectionTests(unittest.TestCase):
@@ -146,6 +163,74 @@ class RoleCommandTests(unittest.TestCase):
         asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 999}, "from": {"id": 999}, "text": "/rol yomon"}}))
         self.assertEqual(bot.store.get_role("default"), "default")
         self.assertIn("faqat akkaunt egasi", bot.telegram.sent[-1]["text"])
+
+
+class ManualPauseFlowTests(unittest.TestCase):
+    class FakeTelegram:
+        def __init__(self):
+            self.sent = []
+
+        async def send_typing(self, chat_id, business_connection_id=None):
+            return None
+
+        async def send_message(self, **kwargs):
+            self.sent.append(kwargs)
+            return {"message_id": 10}
+
+    class FakeAI:
+        def __init__(self):
+            self.calls = 0
+
+        async def answer(self, history):
+            self.calls += 1
+            return "AI javob", "fake"
+
+    def _bot(self):
+        settings = SimpleNamespace(
+            bot_token="dummy", ai_provider="manus", openai_api_key="", qwen_api_key="", manus_api_key="key",
+            openai_base_url="https://api.openai.com/v1", qwen_base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            openai_model="gpt-4o-mini", qwen_model="qwen-plus", manus_base_url="https://api.manus.ai",
+            manus_agent_profile="manus-1.6-lite", manus_max_wait_seconds=45, system_prompt="default",
+            data_dir=Path(tempfile.mkdtemp()), max_history_messages=12, send_error_message=False, admin_user_id=8645314130,
+        )
+        bot = BusinessAiBot(settings, store=MemoryStore())
+        bot.telegram = self.FakeTelegram()
+        bot.ai = self.FakeAI()
+        bot.connections["bc-1"] = {
+            "id": "bc-1", "user": {"id": 8645314130}, "is_enabled": True,
+            "rights": {"can_reply": True},
+        }
+        return bot
+
+    @staticmethod
+    def _update(sender_id, text, sender_business_bot=None):
+        message = {
+            "message_id": 1, "business_connection_id": "bc-1", "chat": {"id": 777},
+            "from": {"id": sender_id}, "text": text,
+        }
+        if sender_business_bot is not None:
+            message["sender_business_bot"] = sender_business_bot
+        return {"business_message": message}
+
+    def test_owner_message_pauses_customer_and_expiry_allows_ai(self) -> None:
+        bot = self._bot()
+        asyncio.run(bot.process_update(self._update(8645314130, "Men keyinroq yozaman")))
+        self.assertGreater(bot.store.owner_pause_remaining("business:bc-1:777"), 0)
+
+        asyncio.run(bot.process_update(self._update(555, "Hali bormisiz?")))
+        self.assertEqual(bot.ai.calls, 0)
+        self.assertEqual(bot.telegram.sent, [])
+
+        bot.store.mark_owner_activity("business:bc-1:777", time.time() - 1801)
+        asyncio.run(bot.process_update(self._update(555, "Endi javob bering")))
+        self.assertEqual(bot.ai.calls, 1)
+        self.assertEqual(bot.telegram.sent[-1]["text"], "AI javob")
+
+    def test_bot_generated_business_message_does_not_start_pause(self) -> None:
+        bot = self._bot()
+        asyncio.run(bot.process_update(self._update(8645314130, "Bot yuborgan", {"id": 999})))
+        self.assertEqual(bot.store.owner_pause_remaining("business:bc-1:777"), 0)
+        self.assertEqual(bot.ai.calls, 0)
 
 
 class TelegramPayloadTests(unittest.TestCase):

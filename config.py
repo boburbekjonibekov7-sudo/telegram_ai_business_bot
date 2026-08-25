@@ -46,6 +46,7 @@ class Settings:
     data_dir: Path
     max_history_messages: int
     send_error_message: bool
+    manual_pause_seconds: int
     admin_user_id: int | None
 
     @classmethod
@@ -98,5 +99,6 @@ class Settings:
             data_dir=data_dir,
             max_history_messages=max(2, int(os.getenv("MAX_HISTORY_MESSAGES", "12"))),
             send_error_message=_bool_env("SEND_ERROR_MESSAGE", True),
+            manual_pause_seconds=max(1, int(os.getenv("MANUAL_REPLY_PAUSE_SECONDS", "1800"))),
             admin_user_id=(int(os.getenv("ADMIN_USER_ID", "8645314130")) if os.getenv("ADMIN_USER_ID", "8645314130").strip().isdigit() else None),
         )
