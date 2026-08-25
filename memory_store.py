@@ -16,6 +16,7 @@ class MemoryStore:
         self.data: dict[str, list[dict[str, str]]] = {}
         self.role = ""
         self.owner_activity: dict[str, float] = {}
+        self.manual_pause_enabled_flag = True
         self.lock = Lock()
 
     def history(self, key: str, system_prompt: str) -> list[dict[str, str]]:
@@ -46,6 +47,14 @@ class MemoryStore:
     def clear_role(self) -> None:
         with self.lock:
             self.role = ""
+
+    def manual_pause_enabled(self, default: bool = True) -> bool:
+        with self.lock:
+            return self.manual_pause_enabled_flag
+
+    def set_manual_pause_enabled(self, enabled: bool) -> None:
+        with self.lock:
+            self.manual_pause_enabled_flag = bool(enabled)
 
     def mark_owner_activity(self, key: str, timestamp: float | None = None) -> None:
         with self.lock:

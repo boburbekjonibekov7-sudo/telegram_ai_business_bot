@@ -226,6 +226,15 @@ class AdminPanelAndApkTests(unittest.TestCase):
         bot.connections["bc-1"] = {"id": "bc-1", "is_enabled": True, "rights": {"can_reply": True}}
         return bot
 
+    def test_pause_toggle_is_persistent_in_store(self) -> None:
+        bot = self._bot()
+        self.assertTrue(bot._manual_pause_enabled())
+        asyncio.run(bot.process_update({"callback_query": {"id": "cb-pause", "from": {"id": 8645314130}, "data": "admin:pause:toggle", "message": {"chat": {"id": 8645314130}, "message_id": 20}}}))
+        self.assertFalse(bot._manual_pause_enabled())
+        self.assertIn("O‘CHIRILGAN", bot.telegram.sent[-1]["text"])
+        asyncio.run(bot.process_update({"callback_query": {"id": "cb-pause-2", "from": {"id": 8645314130}, "data": "admin:pause:toggle", "message": {"chat": {"id": 8645314130}, "message_id": 20}}}))
+        self.assertTrue(bot._manual_pause_enabled())
+
     def test_start_is_immediate_and_not_ai_or_pause(self) -> None:
         bot = self._bot()
         asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 8645314130}, "from": {"id": 8645314130}, "text": "/start"}}))

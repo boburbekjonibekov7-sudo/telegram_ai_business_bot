@@ -103,7 +103,7 @@ Mahalliy polling testida `WEBHOOK_SECRET` kerak emas. Vercel webhook testida esa
 
 ## Admin panel
 
-Botning shaxsiy chatida `/admin` buyrug‘ini faqat `ADMIN_USER_ID=8645314130` ishlata oladi. Panelda xotiradagi chatlar va pause yozuvlari statistikasi, AI roli va 30 daqiqalik manual pause holati ko‘rsatiladi. Admin bo‘lmagan user `/admin` yoki `/rol` yuborsa, bot `Siz admin emassiz.` deb javob beradi. Admin panel tugmalari ham har bir callback’da qayta tekshiriladi.
+Botning shaxsiy chatida `/admin` buyrug‘ini faqat `ADMIN_USER_ID=8645314130` ishlata oladi. Panelda xotiradagi chatlar va pause yozuvlari statistikasi, AI roli va 30 daqiqalik manual pause holati ko‘rsatiladi. `⏱ Pause` bo‘limidagi tugma bilan bu funksiyani istalgan payt yoqing yoki o‘chiring; tanlangan holat Neon’dagi `telegram_settings` jadvalida saqlanadi. Admin bo‘lmagan user `/admin` yoki `/rol` yuborsa, bot `Siz admin emassiz.` deb javob beradi. Admin panel tugmalari ham har bir callback’da qayta tekshiriladi.
 
 ## APK fayllarini o‘chirish
 
@@ -111,7 +111,8 @@ Business chatga mijoz `.apk` fayl yuborsa, bot AI javobi bermasdan `deleteBusine
 
 ## 30 daqiqalik qo‘lda yozish pauzasi
 
-Bot har bir Business chatni alohida kuzatadi. Agar akkaunt egasi userga qo‘lda xabar yuborsa, shu chatda avtomatik javoblar 30 daqiqaga pauzalanadi. User 30 daqiqa ichida yana yozsa, bot javob bermaydi. 30 daqiqa o‘tgach user qayta yozsa, bot yana avtomatik javob beradi. Egasi shu chatga yana yozsa, taymer qaytadan 30 daqiqaga boshlanadi. Botning o‘zi yuborgan xabar taymerni qayta boshlamaydi.
+Bot har bir Business chatni alohida kuzatadi. Agar admin panelda manual pause yoqilgan bo‘lsa va akkaunt egasi userga qo‘lda xabar yuborsa, shu chatda avtomatik javoblar 30 daqiqaga pauzalanadi. Funksiya admin paneldan o‘chirilsa, egasining qo‘lda yozgan xabari AI javoblarini pauzalamaydi. User 30 daqiqa ichida yana yozsa, bot javob bermaydi.
+ 30 daqiqa o‘tgach user qayta yozsa, bot yana avtomatik javob beradi. Egasi shu chatga yana yozsa, taymer qaytadan 30 daqiqaga boshlanadi. Botning o‘zi yuborgan xabar taymerni qayta boshlamaydi.
 
 ## Admin buyruqlari va AI roli
 

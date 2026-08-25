@@ -213,6 +213,40 @@ class PostgresStore:
     def clear_role(self) -> None:
         self.set_role("")
 
+    def manual_pause_enabled(self, default: bool = True) -> bool:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT setting_value FROM telegram_settings WHERE setting_key = %s LIMIT 1",
+                        ("manual_pause_enabled",),
+                    )
+                    row = cursor.fetchone()
+            if not row:
+                return default
+            return str(row[0]).strip().lower() in {"1", "true", "yes", "on"}
+        except Exception as exc:
+            LOGGER.warning("Postgres pause setting read failed: %s", exc)
+            return default
+
+    def set_manual_pause_enabled(self, enabled: bool) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO telegram_settings (setting_key, setting_value)
+                        VALUES (%s, %s)
+                        ON CONFLICT (setting_key)
+                        DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = NOW()
+                        """,
+                        ("manual_pause_enabled", "1" if enabled else "0"),
+                    )
+        except Exception as exc:
+            LOGGER.warning("Postgres pause setting write failed: %s", exc)
+
     def mark_owner_activity(self, key: str, timestamp: float | None = None) -> None:
         connection_id, chat_id = self._parts(key)
         owner_last_sent_at = timestamp if timestamp is not None else time.time()

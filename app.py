@@ -246,11 +246,12 @@ class BusinessAiBot:
 
         storage_key = self._storage_key(chat_id, business_connection_id)
         pause_seconds = max(1, int(getattr(self.settings, "manual_pause_seconds", OWNER_PAUSE_SECONDS)))
-        if is_business and self._is_admin(message):
+        pause_enabled = self._manual_pause_enabled() if is_business else False
+        if is_business and pause_enabled and self._is_admin(message):
             self._mark_owner_activity(storage_key)
             LOGGER.info("Owner qo‘lda xabar yubordi; chat %s soniyaga pauzaga qo‘yildi: %s", pause_seconds, storage_key)
             return
-        if is_business:
+        if is_business and pause_enabled:
             remaining = self._owner_pause_remaining(storage_key, pause_seconds)
             if remaining > 0:
                 LOGGER.info(
@@ -324,16 +325,20 @@ class BusinessAiBot:
         await self.telegram.answer_callback_query(callback_id)
         if not isinstance(chat_id, int) or not isinstance(message_id, int):
             return
-        if data in {"admin:home", "admin:stats", "admin:role", "admin:pause"}:
+        if data in {"admin:home", "admin:stats", "admin:role", "admin:pause", "admin:pause:toggle"}:
             if data == "admin:stats":
                 text = self._admin_stats_text()
                 markup = self._admin_back_keyboard()
             elif data == "admin:role":
                 text = "🧠 AI roli\n\n" + self.store.get_role("Standart rol faol.")
                 markup = {"inline_keyboard": [[{"text": "♻️ Rolni tozalash", "callback_data": "admin:role:reset"}], [{"text": "🔙 Admin panel", "callback_data": "admin:home"}]]}
-            elif data == "admin:pause":
-                text = "⏱ Manual pause\n\nHar bir chatda egasi qo‘lda yozganidan keyin AI javobi 30 daqiqaga to‘xtaydi."
-                markup = self._admin_back_keyboard()
+            elif data in {"admin:pause", "admin:pause:toggle"}:
+                if data == "admin:pause:toggle":
+                    self._set_manual_pause_enabled(not self._manual_pause_enabled())
+                enabled = self._manual_pause_enabled()
+                state = "YOQILGAN" if enabled else "O‘CHIRILGAN"
+                text = f"⏱ Manual pause: {state}\n\nYoqilganda egasi mijozga qo‘lda yozganidan keyin shu chatda AI javobi 30 daqiqaga to‘xtaydi. O‘chirilganda bot 30 daqiqalik qoida bo‘yicha pauza qilmaydi."
+                markup = self._admin_pause_keyboard(enabled)
             else:
                 text = self._admin_panel_text()
                 markup = self._admin_panel_keyboard()
@@ -353,11 +358,38 @@ class BusinessAiBot:
         return "👮 Admin panel\n\nKerakli bo‘limni tanlang:"
 
     def _admin_panel_keyboard(self) -> dict[str, Any]:
+        pause_label = "⏱ Pause: YOQILGAN" if self._manual_pause_enabled() else "⏱ Pause: O‘CHIRILGAN"
         return {"inline_keyboard": [
             [{"text": "📊 Statistika", "callback_data": "admin:stats"}],
             [{"text": "🧠 AI roli", "callback_data": "admin:role"}],
-            [{"text": "⏱ Pause holati", "callback_data": "admin:pause"}],
+            [{"text": pause_label, "callback_data": "admin:pause"}],
         ]}
+
+    def _admin_pause_keyboard(self, enabled: bool) -> dict[str, Any]:
+        toggle_label = "⏸ O‘chirish" if enabled else "▶️ Yoqish"
+        return {"inline_keyboard": [
+            [{"text": toggle_label, "callback_data": "admin:pause:toggle"}],
+            [{"text": "🔙 Admin panel", "callback_data": "admin:home"}],
+        ]}
+
+    def _manual_pause_enabled(self) -> bool:
+        method = getattr(self.store, "manual_pause_enabled", None)
+        if not callable(method):
+            return True
+        try:
+            return bool(method(True))
+        except Exception:
+            LOGGER.exception("Manual pause holatini o‘qib bo‘lmadi")
+            return True
+
+    def _set_manual_pause_enabled(self, enabled: bool) -> None:
+        method = getattr(self.store, "set_manual_pause_enabled", None)
+        if not callable(method):
+            return
+        try:
+            method(bool(enabled))
+        except Exception:
+            LOGGER.exception("Manual pause holatini saqlab bo‘lmadi")
 
     def _admin_back_keyboard(self) -> dict[str, Any]:
         return {"inline_keyboard": [[{"text": "🔙 Admin panel", "callback_data": "admin:home"}]]}
@@ -372,7 +404,8 @@ class BusinessAiBot:
         else:
             pauses = len(getattr(self.store, "owner_activity", {}))
         provider = getattr(self.settings, "ai_provider", "unknown")
-        return f"📊 Statistika\n\n💬 Xotiradagi chatlar: {chats}\n⏱ Pause yozuvlari: {pauses}\n🤖 AI provider: {provider}"
+        pause_state = "yoqilgan" if self._manual_pause_enabled() else "o‘chirilgan"
+        return f"📊 Statistika\n\n💬 Xotiradagi chatlar: {chats}\n⏱ Pause yozuvlari: {pauses}\n⏱ Manual pause: {pause_state}\n🤖 AI provider: {provider}"
 
     @staticmethod
     def _is_apk_message(message: dict[str, Any]) -> bool:

@@ -19,18 +19,19 @@ class JsonStore:
 
     def _load(self) -> dict[str, Any]:
         if not self.path.exists():
-            return {"__role__": ""}
+            return {"__role__": "", "__manual_pause_enabled__": True}
         try:
             loaded: Any = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
                 result: dict[str, Any] = {
                     "__role__": str(loaded.get("__role__", "")),
                     "__owner_activity__": loaded.get("__owner_activity__", {}) if isinstance(loaded.get("__owner_activity__", {}), dict) else {},
+                    "__manual_pause_enabled__": loaded.get("__manual_pause_enabled__", True) is not False,
                 }
                 result.update({
                     str(key): value
                     for key, value in loaded.items()
-                    if key not in {"__role__", "__owner_activity__"} and isinstance(value, list)
+                    if key not in {"__role__", "__owner_activity__", "__manual_pause_enabled__"} and isinstance(value, list)
                 })
                 return result
         except (OSError, json.JSONDecodeError):
@@ -40,7 +41,7 @@ class JsonStore:
                 self.path.replace(backup)
             except OSError:
                 pass
-        return {"__role__": ""}
+        return {"__role__": "", "__manual_pause_enabled__": True}
 
     def _save(self) -> None:
         temporary = self.path.with_suffix(".tmp")
@@ -81,6 +82,15 @@ class JsonStore:
     def clear_role(self) -> None:
         with self.lock:
             self.data["__role__"] = ""
+            self._save()
+
+    def manual_pause_enabled(self, default: bool = True) -> bool:
+        with self.lock:
+            return bool(self.data.get("__manual_pause_enabled__", default))
+
+    def set_manual_pause_enabled(self, enabled: bool) -> None:
+        with self.lock:
+            self.data["__manual_pause_enabled__"] = bool(enabled)
             self._save()
 
     def mark_owner_activity(self, key: str, timestamp: float | None = None) -> None:
