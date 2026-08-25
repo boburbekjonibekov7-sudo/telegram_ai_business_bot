@@ -72,6 +72,10 @@ class PostgresSelectionTests(unittest.TestCase):
             else:
                 os.environ["DATABASE_URL"] = previous
 
+    def test_postgres_store_accepts_normal_and_business_keys(self) -> None:
+        self.assertEqual(PostgresStore._parts("normal:123"), ("__normal__", 123))
+        self.assertEqual(PostgresStore._parts("business:connection:456"), ("connection", 456))
+
 
 class PauseStoreTests(unittest.TestCase):
     def test_upstash_pause_uses_ttl_and_calculates_remaining(self) -> None:

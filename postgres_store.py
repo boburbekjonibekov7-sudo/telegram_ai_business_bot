@@ -96,8 +96,14 @@ class PostgresStore:
     @staticmethod
     def _parts(key: str) -> tuple[str, int]:
         prefix, separator, rest = key.partition(":")
-        if prefix != "business" or not separator:
-            raise ValueError("Postgres chat key must start with business:")
+        if not separator:
+            raise ValueError("Invalid Postgres chat storage key")
+        if prefix == "normal":
+            if not rest:
+                raise ValueError("Invalid normal chat storage key")
+            return "__normal__", int(rest)
+        if prefix != "business":
+            raise ValueError("Invalid Postgres chat storage key prefix")
         connection_id, separator, chat_id_text = rest.rpartition(":")
         if not separator or not connection_id or not chat_id_text:
             raise ValueError("Invalid business chat storage key")
