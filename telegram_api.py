@@ -78,6 +78,12 @@ class TelegramBotApi:
             payload["business_connection_id"] = business_connection_id
         return await self.call("sendChatAction", payload)
 
+    async def get_chat(self, chat_id: int | str) -> dict[str, Any]:
+        result = await self.call("getChat", {"chat_id": chat_id})
+        if not isinstance(result, dict):
+            raise TelegramApiError("getChat", "Telegram chat ma’lumotini qaytarmadi")
+        return result
+
     async def delete_message(
         self,
         chat_id: int,
@@ -203,7 +209,7 @@ class TelegramBotApi:
 
     async def send_message(
         self,
-        chat_id: int,
+        chat_id: int | str,
         text: str,
         business_connection_id: str | None = None,
         reply_to_message_id: int | None = None,

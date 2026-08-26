@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import json
 from contextlib import contextmanager
 from threading import Lock
 from typing import Any, Iterator
@@ -159,6 +160,26 @@ class PostgresStore:
                             business_connection_id TEXT PRIMARY KEY,
                             user_id BIGINT NOT NULL,
                             role TEXT NOT NULL DEFAULT '',
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS telegram_vip_channels (
+                            chat_id TEXT PRIMARY KEY,
+                            title TEXT NOT NULL DEFAULT '',
+                            username TEXT NOT NULL DEFAULT '',
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS telegram_admin_sessions (
+                            user_id BIGINT PRIMARY KEY,
+                            state TEXT NOT NULL,
+                            data JSONB NOT NULL DEFAULT '{}'::jsonb,
                             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                         )
                         """
@@ -569,6 +590,118 @@ class PostgresStore:
 
     def clear_business_role(self, connection_id: str) -> None:
         self.set_business_role(connection_id, "")
+
+    def list_vip_users(self) -> list[dict[str, object]]:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT user_id, premium_until, source FROM telegram_premium_access WHERE premium_until > %s ORDER BY premium_until DESC LIMIT 1000", (time.time(),))
+                    rows = cursor.fetchall()
+            return [{"user_id": int(row[0]), "premium_until": float(row[1]), "source": str(row[2])} for row in rows]
+        except Exception as exc:
+            LOGGER.warning("Postgres VIP list failed: %s", exc)
+            return []
+
+    def grant_vip_days(self, user_id: int, days: int) -> None:
+        self.grant_premium(user_id, time.time() + max(1, days) * 86400, "owner_grant")
+
+    def revoke_vip(self, user_id: int) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("DELETE FROM telegram_premium_access WHERE user_id = %s", (user_id,))
+        except Exception as exc:
+            LOGGER.warning("Postgres VIP revoke failed: %s", exc)
+
+    def list_channels(self) -> list[dict[str, str]]:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT chat_id, title, username FROM telegram_vip_channels ORDER BY created_at DESC LIMIT 500")
+                    rows = cursor.fetchall()
+            return [{"chat_id": str(row[0]), "title": str(row[1]), "username": str(row[2])} for row in rows]
+        except Exception as exc:
+            LOGGER.warning("Postgres channel list failed: %s", exc)
+            return []
+
+    def upsert_channel(self, chat_id: str, title: str = "", username: str = "") -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        INSERT INTO telegram_vip_channels (chat_id, title, username) VALUES (%s, %s, %s)
+                        ON CONFLICT (chat_id) DO UPDATE SET title = EXCLUDED.title, username = EXCLUDED.username
+                    """, (str(chat_id), title, username))
+        except Exception as exc:
+            LOGGER.warning("Postgres channel write failed: %s", exc)
+
+    def delete_channel(self, chat_id: str) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("DELETE FROM telegram_vip_channels WHERE chat_id = %s", (str(chat_id),))
+        except Exception as exc:
+            LOGGER.warning("Postgres channel delete failed: %s", exc)
+
+    def broadcast_user_ids(self, target: str = "all") -> list[int]:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    if target == "vip":
+                        cursor.execute("""
+                            SELECT s.user_id FROM telegram_user_starts s
+                            JOIN telegram_premium_access p ON p.user_id = s.user_id
+                            WHERE p.premium_until > %s ORDER BY s.user_id LIMIT 5000
+                        """, (time.time(),))
+                    else:
+                        cursor.execute("SELECT user_id FROM telegram_user_starts ORDER BY user_id LIMIT 5000")
+                    rows = cursor.fetchall()
+            return [int(row[0]) for row in rows]
+        except Exception as exc:
+            LOGGER.warning("Postgres broadcast recipient read failed: %s", exc)
+            return []
+
+    def get_admin_session(self, user_id: int) -> dict[str, object] | None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT state, data FROM telegram_admin_sessions WHERE user_id = %s LIMIT 1", (user_id,))
+                    row = cursor.fetchone()
+            if not row:
+                return None
+            data = row[1] if isinstance(row[1], dict) else json.loads(str(row[1]))
+            return {"state": str(row[0]), "data": data}
+        except Exception as exc:
+            LOGGER.warning("Postgres admin session read failed: %s", exc)
+            return None
+
+    def set_admin_session(self, user_id: int, state: str, data: dict[str, object] | None = None) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        INSERT INTO telegram_admin_sessions (user_id, state, data) VALUES (%s, %s, %s::jsonb)
+                        ON CONFLICT (user_id) DO UPDATE SET state = EXCLUDED.state, data = EXCLUDED.data, updated_at = NOW()
+                    """, (user_id, state, json.dumps(data or {}, ensure_ascii=False)))
+        except Exception as exc:
+            LOGGER.warning("Postgres admin session write failed: %s", exc)
+
+    def clear_admin_session(self, user_id: int) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("DELETE FROM telegram_admin_sessions WHERE user_id = %s", (user_id,))
+        except Exception as exc:
+            LOGGER.warning("Postgres admin session clear failed: %s", exc)
 
     def mark_owner_activity(self, key: str, timestamp: float | None = None) -> None:
         connection_id, chat_id = self._parts(key)

@@ -145,3 +145,9 @@ Bot tokeni va AI key’larini `.env`, Git history, README yoki source code’ga 
 5. [Telegram Chat Automation e’loni](https://telegram.org/blog/ai-bot-revolution-11-new-features) — “Chat Automation in Profiles”.
 6. [OpenAI API pricing](https://developers.openai.com/api/docs/pricing) — model va token tariflari.
 7. [Alibaba Cloud Model Studio pricing](https://www.alibabacloud.com/help/en/model-studio/model-pricing) — Qwen/DashScope model tariflari.
+
+## Owner-only boshqaruv funksiyalari
+
+Admin panelda `💎 VIP boshqaruvi`, `📢 Kanal boshqaruvi` va `✉️ Xabar yuborish` bo‘limlari faqat hardcoded owner ID `8645314130` uchun ko‘rinadi. VIP boshqaruvi userga kunlik VIP berish, VIP accessni olish va faol VIP userlar ro‘yxatini ko‘rsatishni qo‘llab-quvvatlaydi. Kanal boshqaruvi kanal username yoki chat ID orqali kanalni saqlash, ro‘yxatini ko‘rish va o‘chirish imkonini beradi; botga kanalga post yuborish uchun Telegram’da administrator huquqi berilishi kerak.
+
+Xabar yuborish bo‘limi barcha boshlangan userlarga, faol VIP userlarga yoki saqlangan kanallarga matn yuboradi. Har bir amal owner callback authorization bilan himoyalangan; VIP userlar admin panelining odatiy bo‘limlaridan foydalanishi mumkin, lekin ushbu uchta owner-only bo‘limni ko‘rmaydi va callback orqali ham ishga tushira olmaydi. Admin sessionlari Neon’da saqlanadi, shuning uchun Vercel cold start’dan keyin ham ko‘p bosqichli amal davom etadi.

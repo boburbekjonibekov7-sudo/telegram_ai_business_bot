@@ -23,8 +23,10 @@ STAR_SUBSCRIPTION_PAYLOAD = "premium_monthly_100_stars_v1"
 MANGEKYO_PROMO_CODE = "mangenkyo sharingan"
 MANGEKYO_PROMO_REPLY = "Sharingan faollashdi!\nEndi siz botdan 1 oy bepul foydalanasiz!!!\n/start /start /start"
 PROMO_SILENT_REPLY = "So‘rov bajarilmadi."
-START_MENU_TEXT = "Salom! Telegram Business chatlaringizga avtomatik javob beruvchi AI CHAT BOT man✨\n\nBotdan to‘liq foydalanish uchun PREMIUM 💎 oling"
-BOT_ABOUT_TEXT = "Bot haqida 🤖\n\n• Telegram Business va Chat Automation chatlariga AI javob beradi.\n• Business chatda yuborilgan APK fayllarni avtomatik o‘chirishni qo‘llab-quvvatlaydi.\n\nPremium 💎 imkoniyatlari:\n• Oyiga 100 Telegram Stars evaziga 30 kunlik access.\n• Shaxsiy AI chat va shaxsiy rol sozlamalari.\n• Kengaytirilgan admin panel va pause boshqaruvi.\n• To‘lovdan keyin premium funksiyalar avtomatik ochiladi."
+START_MENU_TEXT = "Salom! Telegram Business chatlaringizga avtomatik javob beruvchi AI CHAT BOT man✨\n\nBotdan to‘liq foydalanish uchun VIP 💎 oling"
+BOT_ABOUT_TEXT = "Bot haqida 🤖\n\n• Telegram Business va Chat Automation chatlariga AI javob beradi.\n• Business chatda yuborilgan APK fayllarni avtomatik o‘chirishni qo‘llab-quvvatlaydi.\n\nVIP 💎 imkoniyatlari:\n• Oyiga 100 Telegram Stars evaziga 30 kunlik access.\n• Shaxsiy AI chat va shaxsiy rol sozlamalari.\n• Kengaytirilgan admin panel va pause boshqaruvi.\n• To‘lovdan keyin VIP funksiyalar avtomatik ochiladi."
+VIP_LABEL = "VIP"
+
 
 
 
@@ -256,7 +258,7 @@ class BusinessAiBot:
             if not is_owner and not is_premium:
                 await self._send_chunks(chat_id, "Siz admin emassiz.", None, reply_to)
                 return True
-            await self._send_chunks(chat_id, self._admin_panel_text(), None, reply_to, self._admin_panel_keyboard(include_statistics=is_owner, include_main_menu=True, user_id=sender_id))
+            await self._send_chunks(chat_id, self._admin_panel_text(), None, reply_to, self._admin_panel_keyboard(include_statistics=is_owner, include_main_menu=True, user_id=sender_id, include_owner_tools=is_owner))
             return True
         if command != "/rol":
             return False
@@ -326,6 +328,8 @@ class BusinessAiBot:
         if not text:
             return
         if not is_business and await self._handle_admin_command(message, text, chat_id):
+            return
+        if not is_business and user_id == OWNER_ADMIN_ID and await self._handle_owner_session(message, text, chat_id):
             return
 
         if not is_business and user_id != OWNER_ADMIN_ID and self._is_promo_trigger(text):
@@ -429,6 +433,10 @@ class BusinessAiBot:
         message_id = message.get("message_id")
         is_owner = isinstance(user_id, int) and user_id == OWNER_ADMIN_ID
         is_premium = isinstance(user_id, int) and self._has_premium(user_id)
+        owner_only_callback = data.startswith(("owner:", "vip:", "channel:", "broadcast:"))
+        if owner_only_callback and not is_owner:
+            await self.telegram.answer_callback_query(callback_id, "Siz admin emassiz.", True)
+            return
         if data.startswith("admin:") and not (is_owner or is_premium):
             await self.telegram.answer_callback_query(callback_id, "Siz admin emassiz.", True)
             return
@@ -437,6 +445,43 @@ class BusinessAiBot:
             return
         await self.telegram.answer_callback_query(callback_id)
         if not isinstance(chat_id, int) or not isinstance(message_id, int):
+            return
+        if data == "owner:vip":
+            await self._edit_owner_screen(chat_id, message_id, self._owner_vip_text(), self._owner_vip_keyboard())
+            return
+        if data == "vip:list":
+            await self._edit_owner_screen(chat_id, message_id, self._owner_vip_text(), self._owner_vip_keyboard())
+            return
+        if data == "vip:grant":
+            self._set_owner_session(user_id, "vip_grant_id")
+            await self._edit_owner_screen(chat_id, message_id, "➕ VIP berish\n\nUserning Telegram ID sini yuboring:", self._owner_vip_keyboard())
+            return
+        if data == "vip:revoke":
+            self._set_owner_session(user_id, "vip_revoke_id")
+            await self._edit_owner_screen(chat_id, message_id, "❌ VIP olish\n\nUserning Telegram ID sini yuboring:", self._owner_vip_keyboard())
+            return
+        if data == "owner:channels":
+            await self._edit_owner_screen(chat_id, message_id, self._owner_channels_text(), self._owner_channels_keyboard())
+            return
+        if data == "channel:list":
+            await self._edit_owner_screen(chat_id, message_id, self._owner_channels_text(), self._owner_channels_keyboard())
+            return
+        if data == "channel:add":
+            self._set_owner_session(user_id, "channel_add")
+            await self._edit_owner_screen(chat_id, message_id, "➕ Kanal qo‘shish\n\nKanal username’i yoki chat ID sini yuboring.\nBot kanalga xabar yuborishi uchun admin huquqiga ega bo‘lishi kerak.", self._owner_channels_keyboard())
+            return
+        if data == "channel:delete":
+            self._set_owner_session(user_id, "channel_delete")
+            await self._edit_owner_screen(chat_id, message_id, "🗑 Kanalni o‘chirish\n\nO‘chiriladigan kanal chat ID sini yuboring:", self._owner_channels_keyboard())
+            return
+        if data == "owner:broadcast":
+            await self._edit_owner_screen(chat_id, message_id, "✉️ Xabar yuborish\n\nKimga yuborishni tanlang:", self._owner_broadcast_keyboard())
+            return
+        if data in {"broadcast:all", "broadcast:vip", "broadcast:channels"}:
+            target = data.split(":", 1)[1]
+            self._set_owner_session(user_id, "broadcast_text", {"target": target})
+            target_label = {"all": "barcha userlarga", "vip": "VIP userlarga", "channels": "saqlangan kanallarga"}[target]
+            await self._edit_owner_screen(chat_id, message_id, f"✉️ Xabar yuborish\n\n{target_label} yuboriladigan matnni yuboring.\n\nBekor qilish: /cancel", self._owner_broadcast_keyboard())
             return
         if data == "menu:home":
             await self.telegram.edit_message_text(chat_id, message_id, START_MENU_TEXT, self._main_menu_keyboard(self._has_premium(user_id)))
@@ -475,7 +520,7 @@ class BusinessAiBot:
                 markup = self._admin_pause_keyboard(enabled)
             else:
                 text = self._admin_panel_text()
-                markup = self._admin_panel_keyboard(include_statistics=is_owner, include_main_menu=True, user_id=user_id)
+                markup = self._admin_panel_keyboard(include_statistics=is_owner, include_main_menu=True, user_id=user_id, include_owner_tools=is_owner)
             try:
                 await self.telegram.edit_message_text(chat_id, message_id, text, markup)
             except TelegramApiError:
@@ -516,14 +561,14 @@ class BusinessAiBot:
             return
         try:
             link = await self.telegram.create_invoice_link(
-                "Premium AI — 1 oy",
-                "AI chat, shaxsiy rol va premium funksiyalar. Obuna 30 kun amal qiladi.",
+                "VIP AI — 1 oy",
+                "AI chat, shaxsiy rol va VIP funksiyalar. Obuna 30 kun amal qiladi.",
                 STAR_SUBSCRIPTION_PAYLOAD,
                 STAR_SUBSCRIPTION_AMOUNT,
                 STAR_SUBSCRIPTION_PERIOD_SECONDS,
             )
             markup = {"inline_keyboard": [[{"text": "⭐ 100 Stars — obuna bo‘lish", "url": link}]]}
-            text = "Premium funksiyalarni ochish uchun oyiga 100 Telegram Stars to‘lang. To‘lov muvaffaqiyatli tasdiqlangach, premium access 30 kunga avtomatik ochiladi."
+            text = "VIP funksiyalarni ochish uchun oyiga 100 Telegram Stars to‘lang. To‘lov muvaffaqiyatli tasdiqlangach, VIP access 30 kunga avtomatik ochiladi."
             if edit_message_id is not None:
                 try:
                     await self.telegram.edit_message_text(chat_id, edit_message_id, text, markup)
@@ -540,14 +585,14 @@ class BusinessAiBot:
         active = self._has_premium(user_id)
         if active and until:
             remaining_days = max(1, int((until - time.time()) / 86400))
-            text = f"⭐ Premium faol. Qolgan muddat: taxminan {remaining_days} kun.\n\nShaxsiy AI rolingizni /rol orqali sozlashingiz mumkin."
+            text = f"⭐ VIP faol. Qolgan muddat: taxminan {remaining_days} kun.\n\nShaxsiy AI rolingizni /rol orqali sozlashingiz mumkin."
         else:
-            text = "⭐ Premium faol emas. Oylik 100 Stars obunasi bilan AI chat, shaxsiy rol va boshqa premium funksiyalarni oching."
+            text = "⭐ VIP faol emas. Oylik 100 Stars obunasi bilan AI chat, shaxsiy rol va boshqa VIP funksiyalarni oching."
         return text, self._premium_keyboard(active)
 
     async def _send_premium_panel(self, chat_id: int, user_id: int | None, reply_to: int | None) -> None:
         if user_id is None:
-            await self._send_chunks(chat_id, "Premium panelni ochib bo‘lmadi.", None, reply_to)
+            await self._send_chunks(chat_id, "VIP panelni ochib bo‘lmadi.", None, reply_to)
             return
         text, markup = self._premium_panel_content(user_id)
         await self._send_chunks(chat_id, text, None, reply_to, markup)
@@ -563,7 +608,7 @@ class BusinessAiBot:
 
     def _main_menu_keyboard(self, premium_active: bool = False) -> dict[str, Any]:
         return {"inline_keyboard": [
-            [{"text": "PREMIUM 💎", "callback_data": "premium:status"}],
+            [{"text": "VIP 💎", "callback_data": "premium:status"}],
             [{"text": "Bot haqida 🤖", "callback_data": "menu:about"}],
         ]}
 
@@ -574,14 +619,14 @@ class BusinessAiBot:
     @staticmethod
     def _premium_role_keyboard() -> dict[str, Any]:
         return {"inline_keyboard": [
-            [{"text": "🔙 Premium", "callback_data": "premium:status"}],
+            [{"text": "🔙 VIP", "callback_data": "premium:status"}],
             [{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}],
         ]}
 
     def _premium_keyboard(self, active: bool) -> dict[str, Any]:
         rows: list[list[dict[str, str]]] = []
         if active:
-            rows.append([{"text": "🧠 Shaxsiy rol", "callback_data": "premium:role"}])
+            rows.append([{ "text": "🧠 Shaxsiy rol", "callback_data": "premium:role"}])
         else:
             rows.append([{"text": "⭐ 100 Stars bilan obuna", "callback_data": "premium:buy"}])
         rows.append([{"text": "🔄 Statusni yangilash", "callback_data": "premium:status"}])
@@ -683,7 +728,7 @@ class BusinessAiBot:
     def _admin_panel_text(self) -> str:
         return "👮 Admin panel\n\nKerakli bo‘limni tanlang:"
 
-    def _admin_panel_keyboard(self, include_statistics: bool = True, include_main_menu: bool = False, user_id: int | None = None) -> dict[str, Any]:
+    def _admin_panel_keyboard(self, include_statistics: bool = True, include_main_menu: bool = False, user_id: int | None = None, include_owner_tools: bool = False) -> dict[str, Any]:
         pause_label = "⏱ Pause: YOQILGAN" if self._manual_pause_enabled(user_id) else "⏱ Pause: O‘CHIRILGAN"
         rows: list[list[dict[str, str]]] = []
         if include_statistics:
@@ -692,6 +737,12 @@ class BusinessAiBot:
             [{"text": "🧠 AI roli", "callback_data": "admin:role"}],
             [{"text": pause_label, "callback_data": "admin:pause"}],
         ])
+        if include_owner_tools:
+            rows.extend([
+                [{"text": "💎 VIP boshqaruvi", "callback_data": "owner:vip"}],
+                [{"text": "📢 Kanal boshqaruvi", "callback_data": "owner:channels"}],
+                [{"text": "✉️ Xabar yuborish", "callback_data": "owner:broadcast"}],
+            ])
         if include_main_menu:
             rows.append([{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}])
         return {"inline_keyboard": rows}
@@ -803,6 +854,175 @@ class BusinessAiBot:
                 reply_to_message_id=reply_to_message_id if index == 0 else None,
                 reply_markup=reply_markup if index == 0 else None,
             )
+
+
+    def _owner_session(self, user_id: int | None) -> dict[str, Any] | None:
+        if user_id != OWNER_ADMIN_ID:
+            return None
+        getter = getattr(self.store, "get_admin_session", None)
+        session = getter(user_id) if callable(getter) else None
+        return session if isinstance(session, dict) else None
+
+    def _set_owner_session(self, user_id: int | None, state: str, data: dict[str, Any] | None = None) -> None:
+        if user_id != OWNER_ADMIN_ID:
+            return
+        setter = getattr(self.store, "set_admin_session", None)
+        if callable(setter):
+            setter(user_id, state, data or {})
+
+    def _clear_owner_session(self, user_id: int | None) -> None:
+        if user_id != OWNER_ADMIN_ID:
+            return
+        clearer = getattr(self.store, "clear_admin_session", None)
+        if callable(clearer):
+            clearer(user_id)
+
+    async def _handle_owner_session(self, message: dict[str, Any], text: str, chat_id: int) -> bool:
+        user_id = self._user_id(message)
+        session = self._owner_session(user_id)
+        if not session:
+            return False
+        state = str(session.get("state") or "")
+        data = session.get("data") if isinstance(session.get("data"), dict) else {}
+        reply_to = message.get("message_id")
+        if text.casefold() in {"bekor", "/cancel"}:
+            self._clear_owner_session(user_id)
+            await self._send_chunks(chat_id, "✅ Amal bekor qilindi.", None, reply_to, self._admin_panel_keyboard(include_statistics=True, include_main_menu=True, user_id=user_id, include_owner_tools=True))
+            return True
+        if state == "vip_grant_id":
+            try:
+                target_id = int(text)
+            except ValueError:
+                await self._send_chunks(chat_id, "❌ Telegram user ID faqat raqam bo‘lishi kerak.", None, reply_to)
+                return True
+            self._set_owner_session(user_id, "vip_grant_days", {"user_id": target_id})
+            await self._send_chunks(chat_id, "VIP necha kunga berilsin? Masalan: 30", None, reply_to)
+            return True
+        if state == "vip_grant_days":
+            try:
+                days = int(text)
+                if days < 1 or days > 3650:
+                    raise ValueError
+            except ValueError:
+                await self._send_chunks(chat_id, "❌ Muddat 1–3650 kun oralig‘ida raqam bo‘lishi kerak.", None, reply_to)
+                return True
+            target_id = int(data.get("user_id", 0))
+            grant = getattr(self.store, "grant_vip_days", None)
+            if callable(grant):
+                grant(target_id, days)
+            self._clear_owner_session(user_id)
+            await self._send_chunks(chat_id, f"✅ {target_id} userga {days} kunlik VIP berildi.", None, reply_to, self._owner_vip_keyboard())
+            return True
+        if state == "vip_revoke_id":
+            try:
+                target_id = int(text)
+            except ValueError:
+                await self._send_chunks(chat_id, "❌ Telegram user ID faqat raqam bo‘lishi kerak.", None, reply_to)
+                return True
+            revoke = getattr(self.store, "revoke_vip", None)
+            if callable(revoke):
+                revoke(target_id)
+            self._clear_owner_session(user_id)
+            await self._send_chunks(chat_id, f"✅ {target_id} userning VIP accessi olib tashlandi.", None, reply_to, self._owner_vip_keyboard())
+            return True
+        if state == "channel_add":
+            try:
+                chat = await self.telegram.get_chat(text)
+                channel_id = str(chat.get("id"))
+                if channel_id == "None":
+                    raise TelegramApiError("getChat", "chat ID topilmadi")
+                saver = getattr(self.store, "upsert_channel", None)
+                if callable(saver):
+                    saver(channel_id, str(chat.get("title") or chat.get("first_name") or ""), str(chat.get("username") or ""))
+                self._clear_owner_session(user_id)
+                await self._send_chunks(chat_id, "✅ Kanal saqlandi. Bot kanalga xabar yuborishi uchun kanalda admin huquqi bo‘lishi kerak.", None, reply_to, self._owner_channels_keyboard())
+            except (TelegramApiError, ValueError) as exc:
+                await self._send_chunks(chat_id, f"❌ Kanal topilmadi yoki saqlanmadi: {exc}", None, reply_to, self._owner_channels_keyboard())
+            return True
+        if state == "channel_delete":
+            deleter = getattr(self.store, "delete_channel", None)
+            if callable(deleter):
+                deleter(text)
+            self._clear_owner_session(user_id)
+            await self._send_chunks(chat_id, "✅ Kanal ro‘yxatdan o‘chirildi.", None, reply_to, self._owner_channels_keyboard())
+            return True
+        if state == "broadcast_text":
+            target = str(data.get("target") or "all")
+            self._clear_owner_session(user_id)
+            sent, failed, total = await self._run_owner_broadcast(target, text)
+            await self._send_chunks(chat_id, f"📤 Xabar yuborish tugadi.\n\nJami: {total}\n✅ Yuborildi: {sent}\n❌ Xato: {failed}", None, reply_to, self._owner_broadcast_keyboard())
+            return True
+        self._clear_owner_session(user_id)
+        return False
+
+    async def _run_owner_broadcast(self, target: str, text: str) -> tuple[int, int, int]:
+        if target == "channels":
+            getter = getattr(self.store, "list_channels", None)
+            recipients = [str(row.get("chat_id")) for row in (getter() if callable(getter) else []) if row.get("chat_id")]
+        else:
+            getter = getattr(self.store, "broadcast_user_ids", None)
+            recipients = [int(user_id) for user_id in (getter(target) if callable(getter) else [])]
+        sent = 0
+        failed = 0
+        for recipient in recipients[:5000]:
+            try:
+                await self.telegram.send_message(chat_id=recipient, text=text)
+                sent += 1
+            except TelegramApiError as exc:
+                failed += 1
+                LOGGER.warning("Owner broadcast yuborilmadi recipient=%s: %s", recipient, exc)
+        return sent, failed, len(recipients)
+
+    def _owner_vip_keyboard(self) -> dict[str, Any]:
+        return {"inline_keyboard": [
+            [{"text": "➕ VIP berish", "callback_data": "vip:grant"}, {"text": "❌ VIP olish", "callback_data": "vip:revoke"}],
+            [{"text": "📋 VIP userlar", "callback_data": "vip:list"}],
+            [{"text": "🔙 Admin panel", "callback_data": "admin:home"}],
+        ]}
+
+    def _owner_channels_keyboard(self) -> dict[str, Any]:
+        return {"inline_keyboard": [
+            [{"text": "➕ Kanal qo‘shish", "callback_data": "channel:add"}],
+            [{"text": "📋 Kanallar ro‘yxati", "callback_data": "channel:list"}],
+            [{"text": "🗑 Kanalni o‘chirish", "callback_data": "channel:delete"}],
+            [{"text": "🔙 Admin panel", "callback_data": "admin:home"}],
+        ]}
+
+    def _owner_broadcast_keyboard(self) -> dict[str, Any]:
+        return {"inline_keyboard": [
+            [{"text": "👥 Barcha userlarga", "callback_data": "broadcast:all"}],
+            [{"text": "💎 VIP userlarga", "callback_data": "broadcast:vip"}],
+            [{"text": "📢 Saqlangan kanallarga", "callback_data": "broadcast:channels"}],
+            [{"text": "🔙 Admin panel", "callback_data": "admin:home"}],
+        ]}
+
+    async def _edit_owner_screen(self, chat_id: int, message_id: int, text: str, markup: dict[str, Any]) -> None:
+        try:
+            await self.telegram.edit_message_text(chat_id, message_id, text, markup)
+        except TelegramApiError:
+            await self._send_chunks(chat_id, text, None, None, markup)
+
+    def _owner_vip_text(self) -> str:
+        getter = getattr(self.store, "list_vip_users", None)
+        users = getter() if callable(getter) else []
+        if not users:
+            return "💎 VIP boshqaruvi\n\nHozircha faol VIP userlar yo‘q."
+        lines = ["💎 VIP boshqaruvi\n"]
+        for row in users[:100]:
+            until = time.strftime("%Y-%m-%d", time.localtime(float(row.get("premium_until", 0))))
+            lines.append(f"• {row.get('user_id')} — {until}")
+        return "\n".join(lines)
+
+    def _owner_channels_text(self) -> str:
+        getter = getattr(self.store, "list_channels", None)
+        channels = getter() if callable(getter) else []
+        if not channels:
+            return "📢 Kanal boshqaruvi\n\nSaqlangan kanallar yo‘q."
+        lines = ["📢 Kanal boshqaruvi\n"]
+        for row in channels[:100]:
+            label = row.get("username") or row.get("title") or row.get("chat_id")
+            lines.append(f"• {label} — {row.get('chat_id')}")
+        return "\n".join(lines)
 
     def stop(self) -> None:
         self.stop_event.set()

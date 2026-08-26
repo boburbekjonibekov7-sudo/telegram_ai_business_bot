@@ -24,6 +24,8 @@ class MemoryStore:
         self.user_roles: dict[int, str] = {}
         self.user_pause_enabled: dict[int, bool] = {}
         self.business_profiles: dict[str, dict[str, int | str]] = {}
+        self.channels: dict[str, dict[str, str]] = {}
+        self.admin_sessions: dict[int, dict[str, object]] = {}
         self.lock = Lock()
 
     def history(self, key: str, system_prompt: str) -> list[dict[str, str]]:
@@ -141,6 +143,51 @@ class MemoryStore:
         with self.lock:
             if connection_id in self.business_profiles:
                 self.business_profiles[connection_id]["role"] = ""
+
+    def list_vip_users(self) -> list[dict[str, object]]:
+        with self.lock:
+            now = time.time()
+            return [{"user_id": user_id, "premium_until": record[0], "source": record[1]}
+                    for user_id, record in self.premium_access.items() if record[0] > now]
+
+    def grant_vip_days(self, user_id: int, days: int) -> None:
+        self.grant_premium(user_id, time.time() + max(1, days) * 86400, "owner_grant")
+
+    def revoke_vip(self, user_id: int) -> None:
+        with self.lock:
+            self.premium_access.pop(user_id, None)
+
+    def list_channels(self) -> list[dict[str, str]]:
+        with self.lock:
+            return [dict(channel) for channel in self.channels.values()]
+
+    def upsert_channel(self, chat_id: str, title: str = "", username: str = "") -> None:
+        with self.lock:
+            self.channels[str(chat_id)] = {"chat_id": str(chat_id), "title": title, "username": username}
+
+    def delete_channel(self, chat_id: str) -> None:
+        with self.lock:
+            self.channels.pop(str(chat_id), None)
+
+    def broadcast_user_ids(self, target: str = "all") -> list[int]:
+        with self.lock:
+            users = set(self.started_users)
+            if target == "vip":
+                users &= set(self.premium_access)
+            return sorted(users)
+
+    def get_admin_session(self, user_id: int) -> dict[str, object] | None:
+        with self.lock:
+            session = self.admin_sessions.get(user_id)
+            return dict(session) if session else None
+
+    def set_admin_session(self, user_id: int, state: str, data: dict[str, object] | None = None) -> None:
+        with self.lock:
+            self.admin_sessions[user_id] = {"state": state, "data": dict(data or {})}
+
+    def clear_admin_session(self, user_id: int) -> None:
+        with self.lock:
+            self.admin_sessions.pop(user_id, None)
 
     def mark_owner_activity(self, key: str, timestamp: float | None = None) -> None:
         with self.lock:

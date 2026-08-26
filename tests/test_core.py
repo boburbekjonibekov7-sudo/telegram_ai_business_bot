@@ -227,6 +227,9 @@ class AdminPanelAndApkTests(unittest.TestCase):
             self.deleted.append((business_connection_id, message_ids))
             return True
 
+        async def get_chat(self, chat_id):
+            return {"id": -100123, "title": "Test kanal", "username": "test_channel"}
+
         async def answer_callback_query(self, callback_query_id, text=None, show_alert=False):
             self.callback_answers.append((callback_query_id, text, show_alert))
             return True
@@ -297,6 +300,50 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertNotIn("📊 Statistika", buttons)
         self.assertIn("🧠 AI roli", buttons)
 
+    def test_owner_panel_shows_owner_tools_but_premium_panel_does_not(self) -> None:
+        bot = self._bot()
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 8645314130}, "from": {"id": 8645314130}, "text": "/admin"}}))
+        owner_buttons = [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row]
+        self.assertIn("💎 VIP boshqaruvi", owner_buttons)
+        self.assertIn("📢 Kanal boshqaruvi", owner_buttons)
+        self.assertIn("✉️ Xabar yuborish", owner_buttons)
+        bot.store.grant_premium(1241, time.time() + 86400, "test")
+        asyncio.run(bot.process_update({"message": {"message_id": 2, "chat": {"id": 1241}, "from": {"id": 1241}, "text": "/admin"}}))
+        premium_buttons = [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row]
+        self.assertNotIn("💎 VIP boshqaruvi", premium_buttons)
+        self.assertNotIn("📢 Kanal boshqaruvi", premium_buttons)
+        self.assertNotIn("✉️ Xabar yuborish", premium_buttons)
+
+    def test_owner_can_grant_vip_from_panel(self) -> None:
+        bot = self._bot()
+        owner = {"id": 8645314130}
+        asyncio.run(bot.process_update({"callback_query": {"id": "vip-menu", "from": owner, "data": "owner:vip", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "vip-grant", "from": owner, "data": "vip:grant", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 11, "chat": {"id": 8645314130}, "from": owner, "text": "1245"}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 12, "chat": {"id": 8645314130}, "from": owner, "text": "30"}}))
+        self.assertTrue(bot.store.has_premium(1245))
+
+    def test_non_owner_cannot_use_owner_tools(self) -> None:
+        bot = self._bot()
+        user = {"id": 1246}
+        bot.store.grant_premium(1246, time.time() + 86400, "test")
+        asyncio.run(bot.process_update({"callback_query": {"id": "owner-tool", "from": user, "data": "owner:vip", "message": {"chat": {"id": 1246}, "message_id": 10}}}))
+        self.assertEqual(bot.telegram.callback_answers[-1], ("owner-tool", "Siz admin emassiz.", True))
+
+    def test_owner_can_save_channel_and_broadcast_to_vip(self) -> None:
+        bot = self._bot()
+        owner = {"id": 8645314130}
+        bot.store.mark_started(1247)
+        bot.store.grant_premium(1247, time.time() + 86400, "test")
+        asyncio.run(bot.process_update({"callback_query": {"id": "channel-menu", "from": owner, "data": "owner:channels", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "channel-add", "from": owner, "data": "channel:add", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 11, "chat": {"id": 8645314130}, "from": owner, "text": "@test_channel"}}))
+        self.assertEqual(bot.store.list_channels()[0]["chat_id"], "-100123")
+        asyncio.run(bot.process_update({"callback_query": {"id": "broadcast-menu", "from": owner, "data": "owner:broadcast", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "broadcast-vip", "from": owner, "data": "broadcast:vip", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 12, "chat": {"id": 8645314130}, "from": owner, "text": "VIP xabar"}}))
+        self.assertTrue(any(item.get("chat_id") == 1247 and item.get("text") == "VIP xabar" for item in bot.telegram.sent))
+
     def test_premium_business_message_uses_its_customer_chat(self) -> None:
         bot = self._bot()
         bot.store.grant_premium(1243, time.time() + 86400, "test")
@@ -357,9 +404,9 @@ class AdminPanelAndApkTests(unittest.TestCase):
         asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1230}, "from": {"id": 1230}, "text": "/start"}}))
         start_text = bot.telegram.sent[-1]["text"]
         self.assertIn("Salom!", start_text)
-        self.assertIn("PREMIUM", start_text)
+        self.assertIn("VIP", start_text)
         buttons = [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row]
-        self.assertIn("PREMIUM 💎", buttons)
+        self.assertIn("VIP 💎", buttons)
         self.assertIn("Bot haqida 🤖", buttons)
         self.assertNotIn("/premium", start_text)
         self.assertNotIn("Manus", start_text)
@@ -383,11 +430,11 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertEqual(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"], "menu:home")
         asyncio.run(bot.process_update({"callback_query": {"id": "home-1", "from": user, "data": "menu:home", "message": {"chat": {"id": 1242}, "message_id": 10}}}))
         self.assertIn("AI CHAT BOT", bot.telegram.sent[-1]["text"])
-        self.assertEqual(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["text"], "PREMIUM 💎")
+        self.assertEqual(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["text"], "VIP 💎")
         home_message_count = len(bot.telegram.sent)
         asyncio.run(bot.process_update({"callback_query": {"id": "premium-1", "from": user, "data": "premium:status", "message": {"chat": {"id": 1242}, "message_id": 10}}}))
         self.assertEqual(len(bot.telegram.sent), home_message_count + 1)
-        self.assertIn("Premium faol emas", bot.telegram.sent[-1]["text"])
+        self.assertIn("VIP faol emas", bot.telegram.sent[-1]["text"])
         self.assertEqual(bot.telegram.sent[-1]["message_id"], 10)
 
     def test_promo_inquiries_are_silent(self) -> None:
