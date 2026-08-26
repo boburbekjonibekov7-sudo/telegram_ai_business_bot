@@ -289,6 +289,7 @@ class BusinessAiBot:
             return
 
         business_connection_id = message.get("business_connection_id") if is_business else None
+        business_owner_id: int | None = None
         if is_business:
             if not isinstance(business_connection_id, str) or not business_connection_id:
                 LOGGER.warning("Business message’da connection_id yo‘q; javob yuborilmadi")
@@ -297,6 +298,9 @@ class BusinessAiBot:
             if not connection or connection.get("is_enabled") is False:
                 LOGGER.warning("Business ulanish faol emas: %s", business_connection_id)
                 return
+            connection_user = connection.get("user") or {}
+            if isinstance(connection_user.get("id"), int):
+                business_owner_id = connection_user["id"]
             rights = connection.get("rights") or {}
             if rights.get("can_reply") is not True:
                 LOGGER.warning(
@@ -329,7 +333,7 @@ class BusinessAiBot:
         storage_key = self._storage_key(chat_id, business_connection_id)
         pause_seconds = max(1, int(getattr(self.settings, "manual_pause_seconds", OWNER_PAUSE_SECONDS)))
         pause_enabled = self._manual_pause_enabled() if is_business else False
-        if is_business and self._is_admin(message):
+        if is_business and (business_owner_id == user_id or (business_owner_id is None and self._is_admin(message))):
             if pause_enabled:
                 self._mark_owner_activity(storage_key)
                 LOGGER.info("Owner qo‘lda xabar yubordi; chat %s soniyaga pauzaga qo‘yildi: %s", pause_seconds, storage_key)

@@ -124,7 +124,7 @@ Ownerning global `/rol` huquqi faqat hardcoded `8645314130` ID’ga tegishli. Pr
 
 Botning shaxsiy chatida `/premium` yuborilganda premium user paneli ochiladi. Oylik subscription 100 Telegram Stars turadi va `XTR` invoice orqali 30 kunlik recurring access beradi. Premium funksiyalar faqat Telegram `successful_payment` update’idan keyin ochiladi; pre-checkout bosqichi o‘zi access bermaydi. To‘lovlar Neon’dagi `telegram_star_payments` va `telegram_premium_access` jadvallarida saqlanadi.
 
-Global `/rol` va statistika bo‘limi faqat hardcoded owner ID `8645314130` uchun ochiq. Premium user `/admin` panelidan statistikasiz foydalanadi va `/myrole` yoki `/premiumrole` orqali faqat shaxsiy AI uslubini sozlaydi.
+Global `/rol` va statistika bo‘limi faqat hardcoded owner ID `8645314130` uchun ochiq. Premium user `/admin` panelidan statistikasiz foydalanadi va faqat `/rol` orqali shaxsiy AI uslubini sozlaydi.
 
 ## Provider tanlash
 
