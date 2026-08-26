@@ -283,6 +283,22 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertNotIn("📊 Statistika", buttons)
         self.assertIn("🧠 AI roli", buttons)
 
+    def test_premium_private_customer_message_survives_typing_api_error(self) -> None:
+        bot = self._bot()
+        bot.store.grant_premium(1243, time.time() + 86400, "test")
+        async def fail_typing(chat_id, business_connection_id=None):
+            from telegram_api import TelegramApiError
+            raise TelegramApiError("sendChatAction", "typing is not supported")
+        bot.telegram.send_typing = fail_typing
+        asyncio.run(bot.process_update({"business_message": {"message_id": 1, "business_connection_id": "bc-1", "chat": {"id": 777}, "from": {"id": 1243}, "text": "Mijoz savoli"}}))
+        self.assertEqual(bot.telegram.sent[-1]["text"], "AI javob")
+
+    def test_removed_myrole_alias_is_not_a_role_command(self) -> None:
+        bot = self._bot()
+        bot.store.grant_premium(1244, time.time() + 86400, "test")
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1244}, "from": {"id": 1244}, "text": "/myrole"}}))
+        self.assertEqual(bot.telegram.sent[-1]["text"], "AI javob")
+
     def test_premium_user_does_not_inherit_owner_global_role(self) -> None:
         bot = self._bot()
         bot.store.set_role("owner global role")

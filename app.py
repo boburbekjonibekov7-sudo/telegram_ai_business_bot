@@ -234,9 +234,6 @@ class BusinessAiBot:
             await self._send_premium_panel(chat_id, self._user_id(message), reply_to)
             return True
 
-        if command in {"/myrole", "/premiumrole"}:
-            await self._handle_premium_role(message, argument, chat_id, reply_to)
-            return True
 
         if command == "/id":
             sender_id = (message.get("from") or {}).get("id")
@@ -363,9 +360,13 @@ class BusinessAiBot:
             history = self.store.history(storage_key, self._effective_system_prompt(user_id if not is_business else None))
             history.append({"role": "user", "content": text})
             try:
-                await self.telegram.send_typing(chat_id, business_connection_id)
+                try:
+                    await self.telegram.send_typing(chat_id, business_connection_id)
+                except TelegramApiError as exc:
+                    # Typing is cosmetic; a Telegram limitation must not block the AI reply.
+                    LOGGER.warning("Typing action yuborilmadi, AI javobi davom etadi: %s", exc)
                 answer, provider_name = await self.ai.answer(history)
-            except (ProviderError, TelegramApiError) as exc:
+            except ProviderError as exc:
                 LOGGER.error("AI javobini tayyorlashda xato: %s", exc)
                 if self.settings.send_error_message:
                     await self._send_chunks(
@@ -431,7 +432,7 @@ class BusinessAiBot:
             await self._send_subscription_offer(chat_id, user_id, None, edit_message_id=message_id)
             return
         if data == "premium:role":
-            await self.telegram.edit_message_text(chat_id, message_id, "Shaxsiy AI rolingizni o‘zgartirish uchun /myrole Sizning uslubingiz... buyrug‘ini yuboring.", self._premium_role_keyboard())
+            await self.telegram.edit_message_text(chat_id, message_id, "Shaxsiy AI rolingizni o‘zgartirish uchun /rol Sizning uslubingiz... buyrug‘ini yuboring.", self._premium_role_keyboard())
             return
         if data in {"admin:home", "admin:stats", "admin:role", "admin:pause", "admin:pause:toggle"}:
             if data == "admin:stats":
@@ -520,7 +521,7 @@ class BusinessAiBot:
         active = self._has_premium(user_id)
         if active and until:
             remaining_days = max(1, int((until - time.time()) / 86400))
-            text = f"⭐ Premium faol. Qolgan muddat: taxminan {remaining_days} kun.\n\nShaxsiy AI rolingizni /myrole orqali sozlashingiz mumkin."
+            text = f"⭐ Premium faol. Qolgan muddat: taxminan {remaining_days} kun.\n\nShaxsiy AI rolingizni /rol orqali sozlashingiz mumkin."
         else:
             text = "⭐ Premium faol emas. Oylik 100 Stars obunasi bilan AI chat, shaxsiy rol va boshqa premium funksiyalarni oching."
         return text, self._premium_keyboard(active)
