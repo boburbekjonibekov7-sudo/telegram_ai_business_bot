@@ -283,6 +283,16 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertNotIn("📊 Statistika", buttons)
         self.assertIn("🧠 AI roli", buttons)
 
+    def test_premium_user_does_not_inherit_owner_global_role(self) -> None:
+        bot = self._bot()
+        bot.store.set_role("owner global role")
+        bot.store.grant_premium(1240, time.time() + 86400, "test")
+        self.assertIn("owner global role", bot._effective_system_prompt(None))
+        self.assertNotIn("owner global role", bot._effective_system_prompt(1240))
+        bot.store.set_user_role(1240, "personal premium role")
+        self.assertIn("personal premium role", bot._effective_system_prompt(1240))
+        self.assertNotIn("owner global role", bot._effective_system_prompt(1240))
+
     def test_non_premium_user_gets_subscription_invoice_link(self) -> None:
         bot = self._bot()
         user = {"id": 1235, "is_bot": False}
@@ -310,7 +320,11 @@ class AdminPanelAndApkTests(unittest.TestCase):
         asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1230}, "from": {"id": 1230}, "text": "/start"}}))
         start_text = bot.telegram.sent[-1]["text"]
         self.assertIn("Salom!", start_text)
-        self.assertIn("/premium", start_text)
+        self.assertIn("PREMIUM", start_text)
+        buttons = [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row]
+        self.assertIn("PREMIUM 💎", buttons)
+        self.assertIn("Bot haqida 🤖", buttons)
+        self.assertNotIn("/premium", start_text)
         self.assertNotIn("Manus", start_text)
         self.assertNotIn("promo", start_text.casefold())
         self.assertNotIn("Mangekyo", start_text)
@@ -319,6 +333,17 @@ class AdminPanelAndApkTests(unittest.TestCase):
         bot = self._bot()
         asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 8645314130}, "from": {"id": 8645314130}, "text": "/start"}}))
         self.assertEqual(bot.telegram.sent[-1]["text"], "AI javob")
+
+    def test_about_and_main_menu_callbacks_stay_in_one_message(self) -> None:
+        bot = self._bot()
+        user = {"id": 1242, "is_bot": False}
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1242}, "from": user, "text": "/start"}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "about-1", "from": user, "data": "menu:about", "message": {"chat": {"id": 1242}, "message_id": 10}}}))
+        self.assertIn("Bot haqida 🤖", bot.telegram.sent[-1]["text"])
+        self.assertEqual(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"], "menu:home")
+        asyncio.run(bot.process_update({"callback_query": {"id": "home-1", "from": user, "data": "menu:home", "message": {"chat": {"id": 1242}, "message_id": 10}}}))
+        self.assertIn("AI CHAT BOT", bot.telegram.sent[-1]["text"])
+        self.assertEqual(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["text"], "PREMIUM 💎")
 
     def test_promo_inquiries_are_silent(self) -> None:
         bot = self._bot()

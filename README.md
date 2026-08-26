@@ -103,7 +103,7 @@ Mahalliy polling testida `WEBHOOK_SECRET` kerak emas. Vercel webhook testida esa
 
 ## Admin panel
 
-Botning shaxsiy chatida `/admin` buyrug‘ini faqat hardcoded owner ID `8645314130` ishlata oladi. Panelda xotiradagi chatlar va pause yozuvlari statistikasi, AI roli va 30 daqiqalik manual pause holati ko‘rsatiladi. `⏱ Pause` bo‘limidagi tugma bilan bu funksiyani istalgan payt yoqing yoki o‘chiring; tanlangan holat Neon’dagi `telegram_settings` jadvalida saqlanadi. Admin bo‘lmagan user `/admin` yoki `/rol` yuborsa, bot `Siz admin emassiz.` deb javob beradi. Admin panel tugmalari ham har bir callback’da qayta tekshiriladi.
+Botning shaxsiy chatida `/admin` buyrug‘i owner va faol premium userlar uchun ochiladi. Owner ID `8645314130` to‘liq panel, jumladan statistika, AI roli va 30 daqiqalik manual pause boshqaruviga ega. Premium userlar panelida statistika tugmasi bo‘lmaydi; ular shaxsiy rol va pause boshqaruvidan foydalanadi. `⏱ Pause` bo‘limidagi tugma bilan bu funksiyani istalgan payt yoqing yoki o‘chiring; tanlangan holat Neon’dagi `telegram_settings` jadvalida saqlanadi. Oddiy premium bo‘lmagan user `/admin` yoki `/rol` yuborsa, bot `Siz admin emassiz.` deb javob beradi. Admin panel tugmalari ham har bir callback’da qayta tekshiriladi.
 
 ## APK fayllarini o‘chirish
 
@@ -118,13 +118,13 @@ Bot har bir Business chatni alohida kuzatadi. Agar admin panelda manual pause yo
 
 Buyruqlarni mijoz chatiga emas, botning o‘z shaxsiy chatiga yuboring. `/id` Telegram user ID’ingizni ko‘rsatadi. `/rol Siz muloyim, qisqa va faqat o‘zbek tilida javob beradigan yordamchisiz.` buyrug‘i keyingi Business xabarlarga qo‘llanadigan AI uslubini saqlaydi. `/rol` joriy rolni ko‘rsatadi, `/rol reset` esa standart rolga qaytaradi. `/role` inglizcha alias sifatida ham ishlaydi.
 
-Xavfsizlik uchun `/rol` faqat `ADMIN_USER_ID` ga mos user tomonidan bajariladi. Admin ID `8645314130` sifatida berilgan. `DATABASE_URL` orqali Neon PostgreSQL ulangani sababli rol va suhbat tarixi yangi deploymentdan keyin ham saqlanadi. `telegram_settings` jadvalida global AI roli, `telegram_conversations` jadvalida har bir Business chat tarixi, `telegram_owner_pauses` jadvalida esa `business_connection_id + chat_id` bo‘yicha owner pause vaqti saqlanadi. Neon vaqtincha ishlamasa, bot xatoni logga yozib, javob oqimini xavfsiz fallback bilan davom ettiradi.
+Ownerning global `/rol` huquqi faqat hardcoded `8645314130` ID’ga tegishli. Premium user `/rol` orqali faqat o‘zining shaxsiy rolini boshqaradi. `DATABASE_URL` orqali Neon PostgreSQL ulangani sababli rol va suhbat tarixi yangi deploymentdan keyin ham saqlanadi. `telegram_settings` jadvalida global AI roli, `telegram_conversations` jadvalida har bir Business chat tarixi, `telegram_owner_pauses` jadvalida esa `business_connection_id + chat_id` bo‘yicha owner pause vaqti saqlanadi. Neon vaqtincha ishlamasa, bot xatoni logga yozib, javob oqimini xavfsiz fallback bilan davom ettiradi.
 
 ## Premium subscription
 
 Botning shaxsiy chatida `/premium` yuborilganda premium user paneli ochiladi. Oylik subscription 100 Telegram Stars turadi va `XTR` invoice orqali 30 kunlik recurring access beradi. Premium funksiyalar faqat Telegram `successful_payment` update’idan keyin ochiladi; pre-checkout bosqichi o‘zi access bermaydi. To‘lovlar Neon’dagi `telegram_star_payments` va `telegram_premium_access` jadvallarida saqlanadi.
 
-Global `/rol` va owner admin paneli faqat hardcoded owner ID `8645314130` uchun ochiq. Premium user o‘z AI uslubini `/myrole` yoki `/premiumrole` orqali alohida sozlaydi; bu global owner rolini o‘zgartirmaydi.
+Global `/rol` va statistika bo‘limi faqat hardcoded owner ID `8645314130` uchun ochiq. Premium user `/admin` panelidan statistikasiz foydalanadi va `/myrole` yoki `/premiumrole` orqali faqat shaxsiy AI uslubini sozlaydi.
 
 ## Provider tanlash
 

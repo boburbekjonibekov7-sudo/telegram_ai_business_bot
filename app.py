@@ -23,6 +23,9 @@ STAR_SUBSCRIPTION_PAYLOAD = "premium_monthly_100_stars_v1"
 MANGEKYO_PROMO_CODE = "mangenkyo sharingan"
 MANGEKYO_PROMO_REPLY = "Sharingan faollashdi!\nEndi siz botdan 1 oy bepul foydalanasiz!!!\n/start /start /start"
 PROMO_SILENT_REPLY = "So‘rov bajarilmadi."
+START_MENU_TEXT = "Salom! Telegram Business chatlaringizga avtomatik javob beruvchi AI CHAT BOT man✨\n\nBotdan to‘liq foydalanish uchun PREMIUM 💎 oling"
+BOT_ABOUT_TEXT = "Bot haqida 🤖\n\n• Telegram Business va Chat Automation chatlariga AI javob beradi.\n• Suhbatlar va sozlamalar Neon storage’da saqlanadi.\n• Business chatda yuborilgan APK fayllarni avtomatik o‘chirishni qo‘llab-quvvatlaydi.\n\nPremium 💎 imkoniyatlari:\n• Oyiga 100 Telegram Stars evaziga 30 kunlik access.\n• Shaxsiy AI chat va shaxsiy rol sozlamalari.\n• Statistika tugmasisiz admin panel.\n• AI roli va 30 daqiqalik pause boshqaruvi.\n• To‘lovdan keyin premium funksiyalar avtomatik ochiladi.\n\nStatistika bo‘limi faqat bot owneri uchun mavjud."
+
 
 
 class BusinessAiBot:
@@ -179,12 +182,15 @@ class BusinessAiBot:
         return any(term in normalized for term in ("promo", "promokod", "promo code", "mangekyo", "sharingan"))
 
     def _effective_system_prompt(self, user_id: int | None = None) -> str:
-        role = self.store.get_role("")
-        user_role_method = getattr(self.store, "get_user_role", None)
-        if user_id is not None and callable(user_role_method):
-            user_role = user_role_method(user_id, "")
-            if user_role:
-                role = user_role or role
+        # Owner's global role is used for Business automation and owner chat only.
+        # A premium user's private AI chat receives only that user's own role.
+        role = ""
+        if user_id is None or user_id == OWNER_ADMIN_ID:
+            role = self.store.get_role("")
+        else:
+            user_role_method = getattr(self.store, "get_user_role", None)
+            if callable(user_role_method):
+                role = user_role_method(user_id, "")
         if not role:
             return self.settings.system_prompt
         return f"{self.settings.system_prompt}\n\nQo‘shimcha boshqaruvchi roli:\n{role}"
@@ -213,12 +219,7 @@ class BusinessAiBot:
                 marker = getattr(self.store, "mark_started", None)
                 if callable(marker):
                     marker(sender_id)
-            await self._send_chunks(
-                chat_id,
-                "Salom! Telegram Business chatlaringizga avtomatik javob beraman.\n\nPremium: /premium\nTelegram ID: /id",
-                None,
-                reply_to,
-            )
+            await self._send_chunks(chat_id, START_MENU_TEXT, None, reply_to, self._main_menu_keyboard(self._has_premium(sender_id)))
             return True
 
         if command in {"/terms", "/shartlar"}:
@@ -249,7 +250,7 @@ class BusinessAiBot:
             if not is_owner and not is_premium:
                 await self._send_chunks(chat_id, "Siz admin emassiz.", None, reply_to)
                 return True
-            await self._send_chunks(chat_id, self._admin_panel_text(), None, reply_to, self._admin_panel_keyboard(include_statistics=is_owner))
+            await self._send_chunks(chat_id, self._admin_panel_text(), None, reply_to, self._admin_panel_keyboard(include_statistics=is_owner, include_main_menu=True))
             return True
         if command not in {"/rol", "/role"}:
             return False
@@ -413,6 +414,12 @@ class BusinessAiBot:
         await self.telegram.answer_callback_query(callback_id)
         if not isinstance(chat_id, int) or not isinstance(message_id, int):
             return
+        if data == "menu:home":
+            await self.telegram.edit_message_text(chat_id, message_id, START_MENU_TEXT, self._main_menu_keyboard(self._has_premium(user_id)))
+            return
+        if data == "menu:about":
+            await self.telegram.edit_message_text(chat_id, message_id, BOT_ABOUT_TEXT, self._about_keyboard())
+            return
         if data == "premium:buy":
             await self._send_subscription_offer(chat_id, user_id, None)
             return
@@ -420,7 +427,7 @@ class BusinessAiBot:
             await self._send_premium_panel(chat_id, user_id, None)
             return
         if data == "premium:role":
-            await self._send_chunks(chat_id, "Shaxsiy AI rolingizni o‘zgartirish uchun /myrole Sizning uslubingiz... buyrug‘ini yuboring.", None, None)
+            await self._send_chunks(chat_id, "Shaxsiy AI rolingizni o‘zgartirish uchun /myrole Sizning uslubingiz... buyrug‘ini yuboring.", None, None, self._premium_role_keyboard())
             return
         if data in {"admin:home", "admin:stats", "admin:role", "admin:pause", "admin:pause:toggle"}:
             if data == "admin:stats":
@@ -444,7 +451,7 @@ class BusinessAiBot:
                 markup = self._admin_pause_keyboard(enabled)
             else:
                 text = self._admin_panel_text()
-                markup = self._admin_panel_keyboard(include_statistics=is_owner)
+                markup = self._admin_panel_keyboard(include_statistics=is_owner, include_main_menu=True)
             try:
                 await self.telegram.edit_message_text(chat_id, message_id, text, markup)
             except TelegramApiError:
@@ -512,6 +519,23 @@ class BusinessAiBot:
             text = "⭐ Premium faol emas. Oylik 100 Stars obunasi bilan AI chat, shaxsiy rol va boshqa premium funksiyalarni oching."
         await self._send_chunks(chat_id, text, None, reply_to, self._premium_keyboard(self._has_premium(user_id)))
 
+    def _main_menu_keyboard(self, premium_active: bool = False) -> dict[str, Any]:
+        return {"inline_keyboard": [
+            [{"text": "PREMIUM 💎", "callback_data": "premium:status"}],
+            [{"text": "Bot haqida 🤖", "callback_data": "menu:about"}],
+        ]}
+
+    @staticmethod
+    def _about_keyboard() -> dict[str, Any]:
+        return {"inline_keyboard": [[{"text": "🔙 Asosiy menyu", "callback_data": "menu:home"}]]}
+
+    @staticmethod
+    def _premium_role_keyboard() -> dict[str, Any]:
+        return {"inline_keyboard": [
+            [{"text": "🔙 Premium", "callback_data": "premium:status"}],
+            [{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}],
+        ]}
+
     def _premium_keyboard(self, active: bool) -> dict[str, Any]:
         rows: list[list[dict[str, str]]] = []
         if active:
@@ -519,6 +543,7 @@ class BusinessAiBot:
         else:
             rows.append([{"text": "⭐ 100 Stars bilan obuna", "callback_data": "premium:buy"}])
         rows.append([{"text": "🔄 Statusni yangilash", "callback_data": "premium:status"}])
+        rows.append([{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}])
         return {"inline_keyboard": rows}
 
     async def _handle_mangekyo_promo(self, message: dict[str, Any], chat_id: int) -> None:
@@ -615,7 +640,7 @@ class BusinessAiBot:
     def _admin_panel_text(self) -> str:
         return "👮 Admin panel\n\nKerakli bo‘limni tanlang:"
 
-    def _admin_panel_keyboard(self, include_statistics: bool = True) -> dict[str, Any]:
+    def _admin_panel_keyboard(self, include_statistics: bool = True, include_main_menu: bool = False) -> dict[str, Any]:
         pause_label = "⏱ Pause: YOQILGAN" if self._manual_pause_enabled() else "⏱ Pause: O‘CHIRILGAN"
         rows: list[list[dict[str, str]]] = []
         if include_statistics:
@@ -624,6 +649,8 @@ class BusinessAiBot:
             [{"text": "🧠 AI roli", "callback_data": "admin:role"}],
             [{"text": pause_label, "callback_data": "admin:pause"}],
         ])
+        if include_main_menu:
+            rows.append([{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}])
         return {"inline_keyboard": rows}
 
     def _admin_pause_keyboard(self, enabled: bool) -> dict[str, Any]:
@@ -631,6 +658,7 @@ class BusinessAiBot:
         return {"inline_keyboard": [
             [{"text": toggle_label, "callback_data": "admin:pause:toggle"}],
             [{"text": "🔙 Admin panel", "callback_data": "admin:home"}],
+            [{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}],
         ]}
 
     def _manual_pause_enabled(self) -> bool:
@@ -653,7 +681,10 @@ class BusinessAiBot:
             LOGGER.exception("Manual pause holatini saqlab bo‘lmadi")
 
     def _admin_back_keyboard(self) -> dict[str, Any]:
-        return {"inline_keyboard": [[{"text": "🔙 Admin panel", "callback_data": "admin:home"}]]}
+        return {"inline_keyboard": [
+            [{"text": "🔙 Admin panel", "callback_data": "admin:home"}],
+            [{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}],
+        ]}
 
     def _admin_stats_text(self) -> str:
         if hasattr(self.store, "conversation_count"):
