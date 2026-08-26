@@ -339,11 +339,19 @@ class AdminPanelAndApkTests(unittest.TestCase):
         user = {"id": 1242, "is_bot": False}
         asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1242}, "from": user, "text": "/start"}}))
         asyncio.run(bot.process_update({"callback_query": {"id": "about-1", "from": user, "data": "menu:about", "message": {"chat": {"id": 1242}, "message_id": 10}}}))
+        about_message_count = len(bot.telegram.sent)
         self.assertIn("Bot haqida 🤖", bot.telegram.sent[-1]["text"])
+        self.assertNotIn("Neon", bot.telegram.sent[-1]["text"])
+        self.assertNotIn("Statistika", bot.telegram.sent[-1]["text"])
         self.assertEqual(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"], "menu:home")
         asyncio.run(bot.process_update({"callback_query": {"id": "home-1", "from": user, "data": "menu:home", "message": {"chat": {"id": 1242}, "message_id": 10}}}))
         self.assertIn("AI CHAT BOT", bot.telegram.sent[-1]["text"])
         self.assertEqual(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["text"], "PREMIUM 💎")
+        home_message_count = len(bot.telegram.sent)
+        asyncio.run(bot.process_update({"callback_query": {"id": "premium-1", "from": user, "data": "premium:status", "message": {"chat": {"id": 1242}, "message_id": 10}}}))
+        self.assertEqual(len(bot.telegram.sent), home_message_count + 1)
+        self.assertIn("Premium faol emas", bot.telegram.sent[-1]["text"])
+        self.assertEqual(bot.telegram.sent[-1]["message_id"], 10)
 
     def test_promo_inquiries_are_silent(self) -> None:
         bot = self._bot()
@@ -382,6 +390,13 @@ class AdminPanelAndApkTests(unittest.TestCase):
 
 
 class ManualPauseFlowTests(unittest.TestCase):
+    def test_owner_business_message_is_never_answered_by_ai(self) -> None:
+        bot = self._bot()
+        bot._set_manual_pause_enabled(False)
+        owner_message = {"message_id": 50, "business_connection_id": "bc-1", "chat": {"id": 777}, "from": {"id": 8645314130}, "text": "Owner yozgan xabar"}
+        asyncio.run(bot.process_update({"business_message": owner_message}))
+        self.assertEqual(bot.telegram.sent, [])
+
     class FakeTelegram:
         def __init__(self):
             self.sent = []

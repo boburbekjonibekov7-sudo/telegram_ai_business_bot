@@ -24,7 +24,7 @@ MANGEKYO_PROMO_CODE = "mangenkyo sharingan"
 MANGEKYO_PROMO_REPLY = "Sharingan faollashdi!\nEndi siz botdan 1 oy bepul foydalanasiz!!!\n/start /start /start"
 PROMO_SILENT_REPLY = "So‘rov bajarilmadi."
 START_MENU_TEXT = "Salom! Telegram Business chatlaringizga avtomatik javob beruvchi AI CHAT BOT man✨\n\nBotdan to‘liq foydalanish uchun PREMIUM 💎 oling"
-BOT_ABOUT_TEXT = "Bot haqida 🤖\n\n• Telegram Business va Chat Automation chatlariga AI javob beradi.\n• Suhbatlar va sozlamalar Neon storage’da saqlanadi.\n• Business chatda yuborilgan APK fayllarni avtomatik o‘chirishni qo‘llab-quvvatlaydi.\n\nPremium 💎 imkoniyatlari:\n• Oyiga 100 Telegram Stars evaziga 30 kunlik access.\n• Shaxsiy AI chat va shaxsiy rol sozlamalari.\n• Statistika tugmasisiz admin panel.\n• AI roli va 30 daqiqalik pause boshqaruvi.\n• To‘lovdan keyin premium funksiyalar avtomatik ochiladi.\n\nStatistika bo‘limi faqat bot owneri uchun mavjud."
+BOT_ABOUT_TEXT = "Bot haqida 🤖\n\n• Telegram Business va Chat Automation chatlariga AI javob beradi.\n• Business chatda yuborilgan APK fayllarni avtomatik o‘chirishni qo‘llab-quvvatlaydi.\n\nPremium 💎 imkoniyatlari:\n• Oyiga 100 Telegram Stars evaziga 30 kunlik access.\n• Shaxsiy AI chat va shaxsiy rol sozlamalari.\n• Kengaytirilgan admin panel va pause boshqaruvi.\n• To‘lovdan keyin premium funksiyalar avtomatik ochiladi."
 
 
 
@@ -261,12 +261,13 @@ class BusinessAiBot:
             await self._handle_premium_role(message, argument, chat_id, reply_to)
             return True
         if not argument:
-            current = self.store.get_role(self.settings.system_prompt)
-            await self._send_chunks(chat_id, f"Joriy rol:\n{current}", None, reply_to)
+            current = self.store.get_role("")
+            status = current if current else "AI oddiy javob rejimida ishlaydi; qo‘shimcha rol berilmagan."
+            await self._send_chunks(chat_id, f"Joriy rol:\n{status}", None, reply_to)
             return True
         if argument.lower() in {"reset", "default", "tozalash"}:
             self.store.clear_role()
-            await self._send_chunks(chat_id, "Rol standart holatga qaytarildi.", None, reply_to)
+            await self._send_chunks(chat_id, "Global qo‘shimcha rol olib tashlandi; AI oddiy javob rejimida ishlaydi.", None, reply_to)
             return True
         if len(argument) > 2000:
             await self._send_chunks(chat_id, "Rol 2000 belgidan oshmasligi kerak.", None, reply_to)
@@ -331,9 +332,12 @@ class BusinessAiBot:
         storage_key = self._storage_key(chat_id, business_connection_id)
         pause_seconds = max(1, int(getattr(self.settings, "manual_pause_seconds", OWNER_PAUSE_SECONDS)))
         pause_enabled = self._manual_pause_enabled() if is_business else False
-        if is_business and pause_enabled and self._is_admin(message):
-            self._mark_owner_activity(storage_key)
-            LOGGER.info("Owner qo‘lda xabar yubordi; chat %s soniyaga pauzaga qo‘yildi: %s", pause_seconds, storage_key)
+        if is_business and self._is_admin(message):
+            if pause_enabled:
+                self._mark_owner_activity(storage_key)
+                LOGGER.info("Owner qo‘lda xabar yubordi; chat %s soniyaga pauzaga qo‘yildi: %s", pause_seconds, storage_key)
+            else:
+                LOGGER.info("Owner Business xabari AI javobisiz qoldirildi: %s", storage_key)
             return
         if is_business and pause_enabled:
             remaining = self._owner_pause_remaining(storage_key, pause_seconds)
@@ -420,14 +424,14 @@ class BusinessAiBot:
         if data == "menu:about":
             await self.telegram.edit_message_text(chat_id, message_id, BOT_ABOUT_TEXT, self._about_keyboard())
             return
-        if data == "premium:buy":
-            await self._send_subscription_offer(chat_id, user_id, None)
-            return
         if data == "premium:status":
-            await self._send_premium_panel(chat_id, user_id, None)
+            await self._edit_premium_panel(chat_id, user_id, message_id)
+            return
+        if data == "premium:buy":
+            await self._send_subscription_offer(chat_id, user_id, None, edit_message_id=message_id)
             return
         if data == "premium:role":
-            await self._send_chunks(chat_id, "Shaxsiy AI rolingizni o‘zgartirish uchun /myrole Sizning uslubingiz... buyrug‘ini yuboring.", None, None, self._premium_role_keyboard())
+            await self.telegram.edit_message_text(chat_id, message_id, "Shaxsiy AI rolingizni o‘zgartirish uchun /myrole Sizning uslubingiz... buyrug‘ini yuboring.", self._premium_role_keyboard())
             return
         if data in {"admin:home", "admin:stats", "admin:role", "admin:pause", "admin:pause:toggle"}:
             if data == "admin:stats":
@@ -435,12 +439,12 @@ class BusinessAiBot:
                 markup = self._admin_back_keyboard()
             elif data == "admin:role":
                 if is_owner:
-                    role = self.store.get_role("Standart rol faol.")
-                    text = "🧠 AI roli\n\n" + role
+                    role = self.store.get_role("")
+                    text = "🧠 AI roli\n\n" + (role or "Qo‘shimcha rol berilmagan; AI oddiy javob rejimida ishlaydi.")
                 else:
                     getter = getattr(self.store, "get_user_role", None)
                     role = getter(user_id, "") if callable(getter) else ""
-                    text = "🧠 Shaxsiy AI roli\n\n" + (role or "Standart rol faol.")
+                    text = "🧠 Shaxsiy AI roli\n\n" + (role or "Qo‘shimcha shaxsiy rol berilmagan; AI oddiy javob rejimida ishlaydi.")
                 markup = {"inline_keyboard": [[{"text": "♻️ Rolni tozalash", "callback_data": "admin:role:reset"}], [{"text": "🔙 Admin panel", "callback_data": "admin:home"}]]}
             elif data in {"admin:pause", "admin:pause:toggle"}:
                 if data == "admin:pause:toggle":
@@ -483,9 +487,12 @@ class BusinessAiBot:
         method = getattr(self.store, "premium_until", None)
         return method(user_id) if callable(method) else None
 
-    async def _send_subscription_offer(self, chat_id: int, user_id: int | None, reply_to: int | None) -> None:
+    async def _send_subscription_offer(self, chat_id: int, user_id: int | None, reply_to: int | None, edit_message_id: int | None = None) -> None:
         if user_id is not None and self._has_premium(user_id):
-            await self._send_premium_panel(chat_id, user_id, reply_to)
+            if edit_message_id is not None:
+                await self._edit_premium_panel(chat_id, user_id, edit_message_id)
+            else:
+                await self._send_premium_panel(chat_id, user_id, reply_to)
             return
         try:
             link = await self.telegram.create_invoice_link(
@@ -496,28 +503,43 @@ class BusinessAiBot:
                 STAR_SUBSCRIPTION_PERIOD_SECONDS,
             )
             markup = {"inline_keyboard": [[{"text": "⭐ 100 Stars — obuna bo‘lish", "url": link}]]}
-            await self._send_chunks(
-                chat_id,
-                "Premium funksiyalarni ochish uchun oyiga 100 Telegram Stars to‘lang. To‘lov muvaffaqiyatli tasdiqlangach, premium access 30 kunga avtomatik ochiladi.",
-                None,
-                reply_to,
-                markup,
-            )
+            text = "Premium funksiyalarni ochish uchun oyiga 100 Telegram Stars to‘lang. To‘lov muvaffaqiyatli tasdiqlangach, premium access 30 kunga avtomatik ochiladi."
+            if edit_message_id is not None:
+                try:
+                    await self.telegram.edit_message_text(chat_id, edit_message_id, text, markup)
+                except TelegramApiError:
+                    await self._send_chunks(chat_id, text, None, None, markup)
+            else:
+                await self._send_chunks(chat_id, text, None, reply_to, markup)
         except (TelegramApiError, ProviderError) as exc:
             LOGGER.error("Stars invoice yaratishda xato: %s", exc)
             await self._send_chunks(chat_id, "Hozircha to‘lov havolasini yaratib bo‘lmadi. Keyinroq yana urinib ko‘ring.", None, reply_to)
+
+    def _premium_panel_content(self, user_id: int) -> tuple[str, dict[str, Any]]:
+        until = self._premium_until(user_id)
+        active = self._has_premium(user_id)
+        if active and until:
+            remaining_days = max(1, int((until - time.time()) / 86400))
+            text = f"⭐ Premium faol. Qolgan muddat: taxminan {remaining_days} kun.\n\nShaxsiy AI rolingizni /myrole orqali sozlashingiz mumkin."
+        else:
+            text = "⭐ Premium faol emas. Oylik 100 Stars obunasi bilan AI chat, shaxsiy rol va boshqa premium funksiyalarni oching."
+        return text, self._premium_keyboard(active)
 
     async def _send_premium_panel(self, chat_id: int, user_id: int | None, reply_to: int | None) -> None:
         if user_id is None:
             await self._send_chunks(chat_id, "Premium panelni ochib bo‘lmadi.", None, reply_to)
             return
-        until = self._premium_until(user_id)
-        if self._has_premium(user_id) and until:
-            remaining_days = max(1, int((until - time.time()) / 86400))
-            text = f"⭐ Premium faol. Qolgan muddat: taxminan {remaining_days} kun.\n\nShaxsiy AI rolingizni /myrole orqali sozlashingiz mumkin."
-        else:
-            text = "⭐ Premium faol emas. Oylik 100 Stars obunasi bilan AI chat, shaxsiy rol va boshqa premium funksiyalarni oching."
-        await self._send_chunks(chat_id, text, None, reply_to, self._premium_keyboard(self._has_premium(user_id)))
+        text, markup = self._premium_panel_content(user_id)
+        await self._send_chunks(chat_id, text, None, reply_to, markup)
+
+    async def _edit_premium_panel(self, chat_id: int, user_id: int | None, message_id: int) -> None:
+        if user_id is None:
+            return
+        text, markup = self._premium_panel_content(user_id)
+        try:
+            await self.telegram.edit_message_text(chat_id, message_id, text, markup)
+        except TelegramApiError:
+            await self._send_chunks(chat_id, text, None, None, markup)
 
     def _main_menu_keyboard(self, premium_active: bool = False) -> dict[str, Any]:
         return {"inline_keyboard": [
@@ -576,11 +598,12 @@ class BusinessAiBot:
             return
         if not argument:
             current = getter(user_id, "")
-            await self._send_chunks(chat_id, f"Shaxsiy rol:\n{current or 'Standart rol faol.'}", None, reply_to)
+            status = current or "Qo‘shimcha shaxsiy rol berilmagan; AI oddiy javob rejimida ishlaydi."
+            await self._send_chunks(chat_id, f"Shaxsiy rol:\n{status}", None, reply_to)
             return
         if argument.casefold() in {"reset", "default", "tozalash"}:
             clearer(user_id)
-            await self._send_chunks(chat_id, "Shaxsiy rol standart holatga qaytarildi.", None, reply_to)
+            await self._send_chunks(chat_id, "Shaxsiy qo‘shimcha rol olib tashlandi; AI oddiy javob rejimida ishlaydi.", None, reply_to)
             return
         if len(argument) > 2000:
             await self._send_chunks(chat_id, "Shaxsiy rol 2000 belgidan oshmasligi kerak.", None, reply_to)
