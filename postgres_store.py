@@ -144,6 +144,25 @@ class PostgresStore:
                         )
                         """
                     )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS telegram_user_settings (
+                            user_id BIGINT PRIMARY KEY,
+                            manual_pause_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS telegram_business_profiles (
+                            business_connection_id TEXT PRIMARY KEY,
+                            user_id BIGINT NOT NULL,
+                            role TEXT NOT NULL DEFAULT '',
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
             self.__class__._schema_ready = True
 
     @staticmethod
@@ -475,6 +494,81 @@ class PostgresStore:
                     cursor.execute("UPDATE telegram_premium_access SET subscription_state = %s, updated_at = NOW() WHERE user_id = %s", (state, user_id))
         except Exception as exc:
             LOGGER.warning("Postgres subscription state update failed: %s", exc)
+
+    def user_manual_pause_enabled(self, user_id: int, default: bool = True) -> bool:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT manual_pause_enabled FROM telegram_user_settings WHERE user_id = %s LIMIT 1", (user_id,))
+                    row = cursor.fetchone()
+            return bool(row[0]) if row else default
+        except Exception as exc:
+            LOGGER.warning("Postgres user pause setting read failed: %s", exc)
+            return default
+
+    def set_user_manual_pause_enabled(self, user_id: int, enabled: bool) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO telegram_user_settings (user_id, manual_pause_enabled)
+                        VALUES (%s, %s)
+                        ON CONFLICT (user_id) DO UPDATE SET manual_pause_enabled = EXCLUDED.manual_pause_enabled, updated_at = NOW()
+                        """,
+                        (user_id, bool(enabled)),
+                    )
+        except Exception as exc:
+            LOGGER.warning("Postgres user pause setting write failed: %s", exc)
+
+    def upsert_business_profile(self, connection_id: str, user_id: int) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO telegram_business_profiles (business_connection_id, user_id)
+                        VALUES (%s, %s)
+                        ON CONFLICT (business_connection_id) DO UPDATE SET user_id = EXCLUDED.user_id, updated_at = NOW()
+                        """,
+                        (connection_id, user_id),
+                    )
+        except Exception as exc:
+            LOGGER.warning("Postgres business profile write failed: %s", exc)
+
+    def get_business_role(self, connection_id: str, default: str = "") -> str:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT role FROM telegram_business_profiles WHERE business_connection_id = %s LIMIT 1", (connection_id,))
+                    row = cursor.fetchone()
+            return str(row[0]) if row and row[0] else default
+        except Exception as exc:
+            LOGGER.warning("Postgres business role read failed: %s", exc)
+            return default
+
+    def set_business_role(self, connection_id: str, role: str) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO telegram_business_profiles (business_connection_id, user_id, role)
+                        VALUES (%s, 0, %s)
+                        ON CONFLICT (business_connection_id) DO UPDATE SET role = EXCLUDED.role, updated_at = NOW()
+                        """,
+                        (connection_id, role.strip()),
+                    )
+        except Exception as exc:
+            LOGGER.warning("Postgres business role write failed: %s", exc)
+
+    def clear_business_role(self, connection_id: str) -> None:
+        self.set_business_role(connection_id, "")
 
     def mark_owner_activity(self, key: str, timestamp: float | None = None) -> None:
         connection_id, chat_id = self._parts(key)

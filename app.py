@@ -36,6 +36,7 @@ class BusinessAiBot:
         self.store = store or PostgresStore.from_env(settings.max_history_messages) or JsonStore(settings.data_dir, settings.max_history_messages)
         self.pause_store = None
         self.connections: dict[str, dict[str, Any]] = {}
+        # Har bir Business connection o‘z user profili va sozlamalari bilan ishlaydi.
         # Global admin huquqi faqat loyiha egasining hardcoded Telegram ID'siga tegishli.
         self.admin_user_ids: set[int] = {OWNER_ADMIN_ID}
         self.chat_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
@@ -129,6 +130,10 @@ class BusinessAiBot:
         if not connection_id:
             return
         self.connections[str(connection_id)] = connection
+        connection_user_id = (connection.get("user") or {}).get("id")
+        profile_writer = getattr(self.store, "upsert_business_profile", None)
+        if isinstance(connection_user_id, int) and callable(profile_writer):
+            profile_writer(str(connection_id), connection_user_id)
         if connection.get("is_enabled") is False:
             LOGGER.info("Business ulanish o‘chirildi: %s", connection_id)
         else:
@@ -181,16 +186,20 @@ class BusinessAiBot:
             return False
         return any(term in normalized for term in ("promo", "promokod", "promo code", "mangekyo", "sharingan"))
 
-    def _effective_system_prompt(self, user_id: int | None = None) -> str:
-        # Owner's global role is used for Business automation and owner chat only.
-        # A premium user's private AI chat receives only that user's own role.
+    def _effective_system_prompt(self, user_id: int | None = None, business_connection_id: str | None = None) -> str:
+        # Har bir premium user yoki Business connection o‘z roliga ega.
+        # Global role faqat eski owner profiliga tegishli; boshqa profillarga meros qilinmaydi.
         role = ""
-        if user_id is None or user_id == OWNER_ADMIN_ID:
+        if user_id == OWNER_ADMIN_ID or (user_id is None and business_connection_id is None):
             role = self.store.get_role("")
-        else:
+        elif isinstance(user_id, int):
             user_role_method = getattr(self.store, "get_user_role", None)
             if callable(user_role_method):
                 role = user_role_method(user_id, "")
+        elif business_connection_id:
+            business_role_method = getattr(self.store, "get_business_role", None)
+            if callable(business_role_method):
+                role = business_role_method(business_connection_id, "")
         if not role:
             return self.settings.system_prompt
         return f"{self.settings.system_prompt}\n\nQo‘shimcha boshqaruvchi roli:\n{role}"
@@ -247,7 +256,7 @@ class BusinessAiBot:
             if not is_owner and not is_premium:
                 await self._send_chunks(chat_id, "Siz admin emassiz.", None, reply_to)
                 return True
-            await self._send_chunks(chat_id, self._admin_panel_text(), None, reply_to, self._admin_panel_keyboard(include_statistics=is_owner, include_main_menu=True))
+            await self._send_chunks(chat_id, self._admin_panel_text(), None, reply_to, self._admin_panel_keyboard(include_statistics=is_owner, include_main_menu=True, user_id=sender_id))
             return True
         if command not in {"/rol", "/role"}:
             return False
@@ -285,6 +294,7 @@ class BusinessAiBot:
             return
         text = self._message_text(message)
         chat_id = self._chat_id(message)
+        user_id = self._user_id(message)
         if chat_id is None:
             return
 
@@ -308,7 +318,7 @@ class BusinessAiBot:
                     business_connection_id,
                 )
                 return
-            if self._is_apk_message(message) and not self._is_admin(message):
+            if self._is_apk_message(message) and user_id != business_owner_id:
                 await self._delete_business_apk(message, business_connection_id)
                 return
 
@@ -318,7 +328,6 @@ class BusinessAiBot:
         if not is_business and await self._handle_admin_command(message, text, chat_id):
             return
 
-        user_id = self._user_id(message)
         if not is_business and user_id != OWNER_ADMIN_ID and self._is_promo_trigger(text):
             await self._handle_mangekyo_promo(message, chat_id)
             return
@@ -332,7 +341,7 @@ class BusinessAiBot:
 
         storage_key = self._storage_key(chat_id, business_connection_id)
         pause_seconds = max(1, int(getattr(self.settings, "manual_pause_seconds", OWNER_PAUSE_SECONDS)))
-        pause_enabled = self._manual_pause_enabled() if is_business else False
+        pause_enabled = self._manual_pause_enabled(business_owner_id) if is_business else False
         if is_business and (business_owner_id == user_id or (business_owner_id is None and self._is_admin(message))):
             if pause_enabled:
                 self._mark_owner_activity(storage_key)
@@ -361,7 +370,13 @@ class BusinessAiBot:
                 )
                 return
 
-            history = self.store.history(storage_key, self._effective_system_prompt(user_id if not is_business else None))
+            history = self.store.history(
+                storage_key,
+                self._effective_system_prompt(
+                    user_id if not is_business else business_owner_id,
+                    business_connection_id if is_business else None,
+                ),
+            )
             history.append({"role": "user", "content": text})
             try:
                 try:
@@ -453,14 +468,14 @@ class BusinessAiBot:
                 markup = {"inline_keyboard": [[{"text": "♻️ Rolni tozalash", "callback_data": "admin:role:reset"}], [{"text": "🔙 Admin panel", "callback_data": "admin:home"}]]}
             elif data in {"admin:pause", "admin:pause:toggle"}:
                 if data == "admin:pause:toggle":
-                    self._set_manual_pause_enabled(not self._manual_pause_enabled())
-                enabled = self._manual_pause_enabled()
+                    self._set_manual_pause_enabled(not self._manual_pause_enabled(user_id), user_id)
+                enabled = self._manual_pause_enabled(user_id)
                 state = "YOQILGAN" if enabled else "O‘CHIRILGAN"
                 text = f"⏱ Manual pause: {state}\n\nYoqilganda egasi mijozga qo‘lda yozganidan keyin shu chatda AI javobi 30 daqiqaga to‘xtaydi. O‘chirilganda bot 30 daqiqalik qoida bo‘yicha pauza qilmaydi."
                 markup = self._admin_pause_keyboard(enabled)
             else:
                 text = self._admin_panel_text()
-                markup = self._admin_panel_keyboard(include_statistics=is_owner, include_main_menu=True)
+                markup = self._admin_panel_keyboard(include_statistics=is_owner, include_main_menu=True, user_id=user_id)
             try:
                 await self.telegram.edit_message_text(chat_id, message_id, text, markup)
             except TelegramApiError:
@@ -668,8 +683,8 @@ class BusinessAiBot:
     def _admin_panel_text(self) -> str:
         return "👮 Admin panel\n\nKerakli bo‘limni tanlang:"
 
-    def _admin_panel_keyboard(self, include_statistics: bool = True, include_main_menu: bool = False) -> dict[str, Any]:
-        pause_label = "⏱ Pause: YOQILGAN" if self._manual_pause_enabled() else "⏱ Pause: O‘CHIRILGAN"
+    def _admin_panel_keyboard(self, include_statistics: bool = True, include_main_menu: bool = False, user_id: int | None = None) -> dict[str, Any]:
+        pause_label = "⏱ Pause: YOQILGAN" if self._manual_pause_enabled(user_id) else "⏱ Pause: O‘CHIRILGAN"
         rows: list[list[dict[str, str]]] = []
         if include_statistics:
             rows.append([{"text": "📊 Statistika", "callback_data": "admin:stats"}])
@@ -689,7 +704,15 @@ class BusinessAiBot:
             [{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}],
         ]}
 
-    def _manual_pause_enabled(self) -> bool:
+    def _manual_pause_enabled(self, user_id: int | None = None) -> bool:
+        if isinstance(user_id, int) and user_id != OWNER_ADMIN_ID:
+            user_method = getattr(self.store, "user_manual_pause_enabled", None)
+            if callable(user_method):
+                try:
+                    return bool(user_method(user_id, True))
+                except Exception:
+                    LOGGER.exception("User pause holatini o‘qib bo‘lmadi")
+                    return True
         method = getattr(self.store, "manual_pause_enabled", None)
         if not callable(method):
             return True
@@ -699,7 +722,16 @@ class BusinessAiBot:
             LOGGER.exception("Manual pause holatini o‘qib bo‘lmadi")
             return True
 
-    def _set_manual_pause_enabled(self, enabled: bool) -> None:
+    def _set_manual_pause_enabled(self, enabled: bool, user_id: int | None = None) -> None:
+        if isinstance(user_id, int) and user_id != OWNER_ADMIN_ID:
+            user_method = getattr(self.store, "set_user_manual_pause_enabled", None)
+            if callable(user_method):
+                try:
+                    user_method(user_id, bool(enabled))
+                    return
+                except Exception:
+                    LOGGER.exception("User pause holatini saqlab bo‘lmadi")
+                    return
         method = getattr(self.store, "set_manual_pause_enabled", None)
         if not callable(method):
             return

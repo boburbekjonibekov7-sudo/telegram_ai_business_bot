@@ -22,6 +22,8 @@ class MemoryStore:
         self.star_payments: set[str] = set()
         self.promo_redemptions: set[int] = set()
         self.user_roles: dict[int, str] = {}
+        self.user_pause_enabled: dict[int, bool] = {}
+        self.business_profiles: dict[str, dict[str, int | str]] = {}
         self.lock = Lock()
 
     def history(self, key: str, system_prompt: str) -> list[dict[str, str]]:
@@ -113,6 +115,32 @@ class MemoryStore:
     def clear_user_role(self, user_id: int) -> None:
         with self.lock:
             self.user_roles.pop(user_id, None)
+
+    def user_manual_pause_enabled(self, user_id: int, default: bool = True) -> bool:
+        with self.lock:
+            return self.user_pause_enabled.get(user_id, default)
+
+    def set_user_manual_pause_enabled(self, user_id: int, enabled: bool) -> None:
+        with self.lock:
+            self.user_pause_enabled[user_id] = bool(enabled)
+
+    def upsert_business_profile(self, connection_id: str, user_id: int) -> None:
+        with self.lock:
+            profile = self.business_profiles.setdefault(connection_id, {"user_id": user_id, "role": ""})
+            profile["user_id"] = user_id
+
+    def get_business_role(self, connection_id: str, default: str = "") -> str:
+        with self.lock:
+            return str(self.business_profiles.get(connection_id, {}).get("role") or default)
+
+    def set_business_role(self, connection_id: str, role: str) -> None:
+        with self.lock:
+            self.business_profiles.setdefault(connection_id, {"user_id": 0, "role": ""})["role"] = role.strip()
+
+    def clear_business_role(self, connection_id: str) -> None:
+        with self.lock:
+            if connection_id in self.business_profiles:
+                self.business_profiles[connection_id]["role"] = ""
 
     def mark_owner_activity(self, key: str, timestamp: float | None = None) -> None:
         with self.lock:

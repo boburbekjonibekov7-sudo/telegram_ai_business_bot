@@ -58,6 +58,20 @@ class StorageTests(unittest.TestCase):
         store.mark_owner_activity("business:bc:1", time.time() - 1801)
         self.assertEqual(store.owner_pause_remaining("business:bc:1"), 0)
 
+    def test_user_settings_and_business_profiles_are_isolated(self) -> None:
+        store = MemoryStore()
+        store.set_user_role(100, "User 100 roli")
+        store.set_user_role(200, "User 200 roli")
+        store.set_user_manual_pause_enabled(100, False)
+        self.assertEqual(store.get_user_role(100), "User 100 roli")
+        self.assertEqual(store.get_user_role(200), "User 200 roli")
+        self.assertFalse(store.user_manual_pause_enabled(100))
+        self.assertTrue(store.user_manual_pause_enabled(200))
+        store.upsert_business_profile("bc-100", 100)
+        store.set_business_role("bc-100", "Business 100 roli")
+        self.assertEqual(store.get_business_role("bc-100"), "Business 100 roli")
+        self.assertEqual(store.get_business_role("bc-200"), "")
+
 
 class PostgresSelectionTests(unittest.TestCase):
     def test_database_url_builds_postgres_store(self) -> None:
@@ -282,6 +296,13 @@ class AdminPanelAndApkTests(unittest.TestCase):
         buttons = [button["text"] for row in panel["reply_markup"]["inline_keyboard"] for button in row]
         self.assertNotIn("📊 Statistika", buttons)
         self.assertIn("🧠 AI roli", buttons)
+
+    def test_premium_business_message_uses_its_customer_chat(self) -> None:
+        bot = self._bot()
+        bot.store.grant_premium(1243, time.time() + 86400, "test")
+        asyncio.run(bot.process_update({"business_message": {"message_id": 1, "business_connection_id": "bc-1", "chat": {"id": 9876}, "from": {"id": 1243}, "text": "Mijoz savoli"}}))
+        self.assertEqual(bot.telegram.sent[-1]["chat_id"], 9876)
+        self.assertEqual(bot.telegram.sent[-1]["business_connection_id"], "bc-1")
 
     def test_premium_private_customer_message_survives_typing_api_error(self) -> None:
         bot = self._bot()
