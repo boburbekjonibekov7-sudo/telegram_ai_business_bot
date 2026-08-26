@@ -116,7 +116,7 @@ Bot har bir Business chatni alohida kuzatadi. Agar admin panelda manual pause yo
 
 ## Admin buyruqlari va AI roli
 
-Buyruqlarni mijoz chatiga emas, botning o‘z shaxsiy chatiga yuboring. `/id` Telegram user ID’ingizni ko‘rsatadi. `/rol Siz muloyim, qisqa va faqat o‘zbek tilida javob beradigan yordamchisiz.` buyrug‘i keyingi Business xabarlarga qo‘llanadigan AI uslubini saqlaydi. `/rol` joriy rolni ko‘rsatadi, `/rol reset` esa standart rolga qaytaradi. `/role` inglizcha alias sifatida ham ishlaydi.
+Buyruqlarni mijoz chatiga emas, botning o‘z shaxsiy chatiga yuboring. `/id` Telegram user ID’ingizni ko‘rsatadi. `/rol Siz muloyim, qisqa va faqat o‘zbek tilida javob beradigan yordamchisiz.` buyrug‘i shu profilning AI uslubini saqlaydi. `/rol` joriy qo‘shimcha rolni ko‘rsatadi, `/rol reset` esa qo‘shimcha rolni olib tashlaydi. Qo‘shimcha rol berilmaguncha AI oddiy javob rejimida ishlaydi.
 
 Ownerning global `/rol` huquqi faqat hardcoded `8645314130` ID’ga tegishli. Premium user `/rol` orqali faqat o‘zining shaxsiy rolini boshqaradi. `DATABASE_URL` orqali Neon PostgreSQL ulangani sababli rol va suhbat tarixi yangi deploymentdan keyin ham saqlanadi. `telegram_settings` jadvalida global AI roli, `telegram_conversations` jadvalida har bir Business chat tarixi, `telegram_owner_pauses` jadvalida esa `business_connection_id + chat_id` bo‘yicha owner pause vaqti saqlanadi. Neon vaqtincha ishlamasa, bot xatoni logga yozib, javob oqimini xavfsiz fallback bilan davom ettiradi.
 

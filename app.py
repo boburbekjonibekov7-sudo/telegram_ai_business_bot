@@ -258,7 +258,7 @@ class BusinessAiBot:
                 return True
             await self._send_chunks(chat_id, self._admin_panel_text(), None, reply_to, self._admin_panel_keyboard(include_statistics=is_owner, include_main_menu=True, user_id=sender_id))
             return True
-        if command not in {"/rol", "/role"}:
+        if command != "/rol":
             return False
         if not is_owner and not is_premium:
             await self._send_chunks(chat_id, "Siz admin emassiz.", None, reply_to)
