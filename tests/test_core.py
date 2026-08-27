@@ -559,6 +559,60 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertEqual(bot.telegram.photos[-1]["photo"], "start-photo")
         self.assertIn("📚 Buyruqlar", [button["text"] for row in bot.telegram.photos[-1]["reply_markup"]["inline_keyboard"] for button in row])
 
+    def test_profile_removes_balance_referral_and_replaces_tariffs_with_vip(self) -> None:
+        bot = self._bot()
+        user = {"id": 1254}
+        asyncio.run(bot.process_update({"callback_query": {"id": "profile", "from": user, "data": "menu:profile", "message": {"chat": {"id": 1254}, "message_id": 10}}}))
+        profile = bot.telegram.sent[-1]
+        self.assertNotIn("Balansingiz", profile["text"])
+        self.assertNotIn("Takliflaringiz", profile["text"])
+        self.assertNotIn("Taklif havola", str(profile["reply_markup"]))
+        buttons = [button["text"] for row in profile["reply_markup"]["inline_keyboard"] for button in row]
+        self.assertIn("VIP 💎", buttons)
+        self.assertNotIn("Pro", buttons)
+        self.assertNotIn("Biznes", buttons)
+
+    def test_vip_profile_screen_uses_requested_text_and_payment(self) -> None:
+        bot = self._bot()
+        user = {"id": 1255}
+        asyncio.run(bot.process_update({"callback_query": {"id": "vip-profile", "from": user, "data": "profile:vip", "message": {"chat": {"id": 1255}, "message_id": 10}}}))
+        screen = bot.telegram.sent[-1]
+        self.assertIn("📩 Avto javoblar: 100 ta", screen["text"])
+        self.assertIn("🤖 AI avto javob (kunlik): 500 ta", screen["text"])
+        self.assertIn("🧠 «.ai» savol (kunlik): 100 ta", screen["text"])
+        self.assertIn("🖼 «.img» / «.rasm» (kunlik): 5 ta", screen["text"])
+        self.assertIn("VIP 💎 obuna (cheklovlarsiz)", screen["text"])
+        self.assertEqual(screen["reply_markup"]["inline_keyboard"][0][0]["callback_data"], "premium:buy")
+
+    def test_topup_screen_contains_only_stars_payment_and_back(self) -> None:
+        bot = self._bot()
+        user = {"id": 1256}
+        asyncio.run(bot.process_update({"callback_query": {"id": "topup", "from": user, "data": "profile:topup", "message": {"chat": {"id": 1256}, "message_id": 10}}}))
+        screen = bot.telegram.sent[-1]
+        self.assertNotIn("Joriy balans", screen["text"])
+        buttons = [button for row in screen["reply_markup"]["inline_keyboard"] for button in row]
+        self.assertEqual([button["text"] for button in buttons], ["⭐ Avto to‘lov (stars)", "🔙 Orqaga"])
+        self.assertEqual(buttons[0]["callback_data"], "premium:buy")
+
+    def test_settings_screen_has_telegram_settings_url_and_back(self) -> None:
+        bot = self._bot()
+        user = {"id": 1257}
+        asyncio.run(bot.process_update({"callback_query": {"id": "settings", "from": user, "data": "menu:settings", "message": {"chat": {"id": 1257}, "message_id": 10}}}))
+        screen = bot.telegram.sent[-1]
+        self.assertIn("Chatbot sozlamalari", screen["text"])
+        url_button = screen["reply_markup"]["inline_keyboard"][0][0]
+        self.assertEqual(url_button["text"], "🟢 Chatbotni sozlash")
+        self.assertEqual(url_button["url"], "tg://settings/edit")
+        self.assertEqual(screen["reply_markup"]["inline_keyboard"][-1][0]["callback_data"], "menu:home")
+
+    def test_profile_vip_back_returns_to_profile(self) -> None:
+        bot = self._bot()
+        user = {"id": 1258}
+        asyncio.run(bot.process_update({"callback_query": {"id": "vip", "from": user, "data": "profile:vip", "message": {"chat": {"id": 1258}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "vip-back", "from": user, "data": "profile:home", "message": {"chat": {"id": 1258}, "message_id": 10}}}))
+        self.assertIn("Profil", bot.telegram.sent[-1]["text"])
+        self.assertIn("VIP 💎", [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row])
+
     def test_required_subscription_keyboard_is_numbered(self) -> None:
         bot = self._bot()
         channels = [

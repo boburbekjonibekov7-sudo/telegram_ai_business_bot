@@ -173,3 +173,9 @@ Admin panelidagi `🖼 Menyu media sozlamalari` bo‘limi faqat hardcoded owner 
 Media sozlamalari mavjud bo‘lmasa, bot avtomatik ravishda matnli fallback ekranini ko‘rsatadi. VIP va oddiy userlar bu admin tugmasini ko‘rmaydi; `owner:media:*` callbacklari qo‘lda yuborilganda ham authorization tekshiruvidan o‘tmaydi. VIP boshqaruvi, majburiy va umumiy kanal boshqaruvi hamda xabar yuborish bo‘limlari ham xuddi shu tarzda faqat `8645314130` uchun yopiq.
 
 Media yuklash tartibi: `/admin` → `🖼 Menyu media sozlamalari` → kerakli media turi → mos rasm yoki video yuborish. Rasm bo‘limlariga photo, video bo‘limlariga video yuborish kerak; jarayonni `/cancel` bilan bekor qilish mumkin.
+
+## Profilim, VIP va Sozlamalar oqimlari
+
+Universal menyudagi `👤 Profilim` ekranida balans va taklif/referral qatorlari ko‘rsatilmaydi. `Bepul`, `Pro` va `Biznes` tarif tugmalari o‘rniga `VIP 💎` tugmasi mavjud. VIP ekrani limitlar va imkoniyatlarni quyidagi ko‘rinishda beradi: `📩 Avto javoblar: 100 ta`, `🤖 AI avto javob (kunlik): 500 ta`, `🧠 «.ai» savol (kunlik): 100 ta`, `🖼 «.img» / «.rasm» (kunlik): 5 ta` hamda bepul tarifga qo‘shimcha VIP imkoniyatlari. VIP sotib olish tugmasi mavjud 100 Telegram Stars/30 kunlik invoice oqimidan foydalanadi.
+
+`💳 Balansni to‘ldirish` ekranida faqat `⭐ Avto to‘lov (stars)` tugmasi qoldirilgan. So‘m balans, takliflar, taklif havolasi va karta to‘lovi haqidagi elementlar bu oqimda ko‘rsatilmaydi. `⚙️ Sozlamalar` ekranidagi `🟢 Chatbotni sozlash` tugmasi Telegram `tg://settings/edit` deep-linkini ochadi. Profil, VIP, balans va Sozlamalar ekranlarining barchasida qaytish tugmasi mavjud.

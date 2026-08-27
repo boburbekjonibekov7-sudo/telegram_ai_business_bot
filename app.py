@@ -51,6 +51,20 @@ COMMANDS_PAGE_2_TEXT = """🤖 Chatbot buyruqlari — davom:
 .dice6 — 🏀 yuborish!"""
 GUIDE_CONNECT_CAPTION = "🤖 Chatbotni ulash qo‘llanmasi"
 GUIDE_USAGE_CAPTION = "🤖 Chatbotdan foydalanish qo‘llanmasi"
+VIP_FEATURES_TEXT = """📩 Avto javoblar: 100 ta
+🤖 AI avto javob (kunlik): 500 ta
+🧠 «.ai» savol (kunlik): 100 ta
+🖼 «.img» / «.rasm» (kunlik): 5 ta
+
+✅ Bepuldagi hamma narsa
+🕔 Profilga soat qo'yish
+🟢 24/7 online rejimi
+✍️ «.ok» / «.loc» uchun maxsus so'z
+💬 Hammaga AI avto javob berish
+🎨 Avto javobga rasm/sticker/ovoz/video/gif
+🔗 <<.img>>, <<.rasm>>, <<.story>>
+
+VIP 💎 obuna (cheklovlarsiz)"""
 BOT_ABOUT_TEXT = "Bot haqida 🤖\n\n• Telegram Business va Chat Automation chatlariga AI javob beradi.\n• Business chatda yuborilgan APK fayllarni avtomatik o‘chirishni qo‘llab-quvvatlaydi.\n\nVIP 💎 imkoniyatlari:\n• Oyiga 100 Telegram Stars evaziga 30 kunlik access.\n• Shaxsiy AI chat va shaxsiy rol sozlamalari.\n• Kengaytirilgan admin panel va pause boshqaruvi.\n• To‘lovdan keyin VIP funksiyalar avtomatik ochiladi."
 VIP_LABEL = "VIP"
 MEDIA_SLOTS = {
@@ -715,9 +729,23 @@ class BusinessAiBot:
         if data == "guide:usage":
             await self._render_media_or_text(chat_id, self._guide_caption(GUIDE_USAGE_CAPTION), self._guide_usage_keyboard(), "usage_guide", message_id)
             return
-        if data in {"menu:profile", "menu:settings", "menu:auto_replies"}:
-            labels = {"menu:profile": "👤 Profilim", "menu:settings": "⚙️ Sozlamalar", "menu:auto_replies": "💬 Avto javoblar ro‘yxati"}
-            await self.telegram.edit_message_text(chat_id, message_id, f"{labels[data]}\n\nBu bo‘lim Chat Automation ulanishi orqali boshqariladi.", self._about_keyboard())
+        if data == "menu:profile":
+            await self.telegram.edit_message_text(chat_id, message_id, self._profile_text(user_id), self._profile_keyboard())
+            return
+        if data == "profile:home":
+            await self.telegram.edit_message_text(chat_id, message_id, self._profile_text(user_id), self._profile_keyboard())
+            return
+        if data == "profile:vip":
+            await self.telegram.edit_message_text(chat_id, message_id, VIP_FEATURES_TEXT, self._vip_features_keyboard())
+            return
+        if data == "profile:topup":
+            await self.telegram.edit_message_text(chat_id, message_id, "💳 Balansni to‘ldirish\n\nTo‘lov usulini tanlang:", self._topup_keyboard())
+            return
+        if data == "menu:settings":
+            await self.telegram.edit_message_text(chat_id, message_id, self._settings_text(user_id), self._settings_keyboard())
+            return
+        if data == "menu:auto_replies":
+            await self.telegram.edit_message_text(chat_id, message_id, "💬 Avto javoblar ro‘yxati\n\nBu bo‘lim Chat Automation ulanishi orqali boshqariladi.", self._about_keyboard())
             return
         if data == "menu:about":
             await self.telegram.edit_message_text(chat_id, message_id, BOT_ABOUT_TEXT, self._about_keyboard())
@@ -838,6 +866,57 @@ class BusinessAiBot:
             await self.telegram.edit_message_text(chat_id, message_id, text, markup)
         except TelegramApiError:
             await self._send_chunks(chat_id, text, None, None, markup)
+
+    def _profile_text(self, user_id: int | None) -> str:
+        active = self._has_premium(user_id)
+        plan = "VIP 💎" if active else "Bepul"
+        until = self._premium_until(user_id)
+        expiry = time.strftime("%Y-%m-%d", time.localtime(until)) if active and until else "—"
+        return f"👤 Profil:\n\n👑 Tarifingiz: {plan}\n⏰ Tarif tugashi: {expiry}\n\n💬 Avto javoblar: 0/5\n🤖 AI avto javob (bugun): 0/500\n🧠 AI javob limiti: 25"
+
+    @staticmethod
+    def _profile_keyboard() -> dict[str, Any]:
+        return {"inline_keyboard": [
+            [{"text": "VIP 💎", "callback_data": "profile:vip"}],
+            [{"text": "💳 Balansni to‘ldirish", "callback_data": "profile:topup"}],
+            [{"text": "🔙 Orqaga", "callback_data": "menu:home"}],
+        ]}
+
+    @staticmethod
+    def _vip_features_keyboard() -> dict[str, Any]:
+        return {"inline_keyboard": [
+            [{"text": "⭐ 100 Stars — 1 oy VIP", "callback_data": "premium:buy"}],
+            [{"text": "🔙 Profilim", "callback_data": "profile:home"}],
+        ]}
+
+    @staticmethod
+    def _topup_keyboard() -> dict[str, Any]:
+        return {"inline_keyboard": [
+            [{"text": "⭐ Avto to‘lov (stars)", "callback_data": "premium:buy"}],
+            [{"text": "🔙 Orqaga", "callback_data": "profile:home"}],
+        ]}
+
+    def _settings_text(self, user_id: int | None) -> str:
+        return """⚙️ Chatbot sozlamalari
+
+🤖 Bepul sozlamalar:
+
+📝 Tahrirlanish: off
+🗑 O‘chirishlar: on
+🤖 APK o‘chirish: on
+••• Yozmoqda: on
+✉️ Avto javob berganda xabarni o‘qish: on
+💱 Valyuta miqdor hisoblash: on
+
+📚 Buyruqlarni kim ishlata oladi"""
+
+    @staticmethod
+    def _settings_keyboard() -> dict[str, Any]:
+        return {"inline_keyboard": [
+            [{"text": "🟢 Chatbotni sozlash", "url": "tg://settings/edit"}],
+            [{"text": "📚 Buyruqlarni kim ishlata oladi", "callback_data": "menu:commands"}],
+            [{"text": "🔙 Orqaga", "callback_data": "menu:home"}],
+        ]}
 
     def _get_setting(self, key: str, default: str = "") -> str:
         getter = getattr(self.store, "get_setting", None)
