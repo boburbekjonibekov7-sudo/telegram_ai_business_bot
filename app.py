@@ -25,7 +25,7 @@ STAR_SUBSCRIPTION_PAYLOAD = "premium_monthly_100_stars_v1"
 MANGEKYO_PROMO_CODE = "mangenkyo sharingan"
 MANGEKYO_PROMO_REPLY = "Sharingan faollashdi!\nEndi siz botdan 1 oy bepul foydalanasiz!!!\n/start /start /start"
 PROMO_SILENT_REPLY = "So‘rov bajarilmadi."
-START_MENU_TEXT = "🤖 Salom Boburbek 🫡\n\n💬 Chatbot accountingizga ulangan — sizga yozadigan odamlarga avto javob beradi.\n\n❓ Quyidagi tugmalar orqali buyruqlar, avto javob va sozlamalarni boshqaring ⚙️"
+START_MENU_TEXT_TEMPLATE = "🤖 Salom, {name} 🫡\n\n💬 Chatbot accountingizga ulangan — sizga yozadigan odamlarga avto javob beradi.\n\n❓ Quyidagi tugmalar orqali buyruqlar, avto javob va sozlamalarni boshqaring ⚙️"
 COMMANDS_PAGE_1_TEXT = """🤖 Chatbot buyruqlari:
 
 .help — 📖 ChatBot dan foydalanish qo‘llanmasi!
@@ -466,7 +466,7 @@ class BusinessAiBot:
                     marker(sender_id)
             if not await self._ensure_subscription_or_prompt(chat_id, sender_id, reply_to):
                 return True
-            await self._send_start_screen(chat_id, reply_to)
+            await self._send_start_screen(chat_id, reply_to, user=message.get("from"))
             return True
 
         if sender_id != OWNER_ADMIN_ID and not await self._ensure_subscription_or_prompt(chat_id, sender_id, reply_to):
@@ -691,7 +691,7 @@ class BusinessAiBot:
             await self.telegram.answer_callback_query(callback_id)
             if await self._is_subscription_satisfied(user_id):
                 if isinstance(chat_id, int):
-                    await self._send_start_screen(chat_id, edit_message_id=message_id if isinstance(message_id, int) else None)
+                    await self._send_start_screen(chat_id, edit_message_id=message_id if isinstance(message_id, int) else None, user=sender)
             else:
                 channels = self._required_channels()
                 await self._edit_owner_screen(chat_id, message_id, self._subscription_gate_text(channels), self._subscription_gate_keyboard(channels))
@@ -836,7 +836,7 @@ class BusinessAiBot:
                 await self._edit_owner_screen(chat_id, message_id, "↗️ Forward qilinadigan xabarni shu chatga yuboring yoki forward qiling.\n\nBekor qilish: /cancel", self._owner_broadcast_type_keyboard(target, extra.get("chat_ids", [])))
             return
         if data == "menu:home":
-            await self._send_start_screen(chat_id, edit_message_id=message_id)
+            await self._send_start_screen(chat_id, edit_message_id=message_id, user=sender)
             return
         if data == "menu:commands":
             await self._render_media_or_text(chat_id, COMMANDS_PAGE_1_TEXT, self._commands_page_1_keyboard(), "commands", message_id)
@@ -1307,11 +1307,28 @@ Qisqa qo‘llanma (ochish uchun bosing):
                 pass
         await self._send_chunks(chat_id, text, None, None, markup)
 
-    async def _send_start_screen(self, chat_id: int, reply_to: int | None = None, edit_message_id: int | None = None) -> None:
+    @staticmethod
+    def _display_name(user: dict[str, Any] | None) -> str:
+        if isinstance(user, dict):
+            first_name = " ".join(str(user.get("first_name") or "").split()).strip()
+            last_name = " ".join(str(user.get("last_name") or "").split()).strip()
+            name = " ".join(part for part in (first_name, last_name) if part)
+            if name:
+                return name[:64]
+            username = " ".join(str(user.get("username") or "").split()).strip().lstrip("@")
+            if username:
+                return f"@{username}"[:64]
+        return "do‘st"
+
+    def _start_menu_text(self, user: dict[str, Any] | None = None) -> str:
+        return START_MENU_TEXT_TEMPLATE.format(name=self._display_name(user))
+
+    async def _send_start_screen(self, chat_id: int, reply_to: int | None = None, edit_message_id: int | None = None, user: dict[str, Any] | None = None) -> None:
+        start_text = self._start_menu_text(user)
         media = self._media_config("start")
         if media:
             try:
-                await self.telegram.send_photo(chat_id, media[0], START_MENU_TEXT, reply_markup=self._main_menu_keyboard())
+                await self.telegram.send_photo(chat_id, media[0], start_text, reply_markup=self._main_menu_keyboard())
                 if edit_message_id is not None:
                     try:
                         await self.telegram.delete_message(chat_id, edit_message_id)
@@ -1322,11 +1339,11 @@ Qisqa qo‘llanma (ochish uchun bosing):
                 LOGGER.warning("Start rasmi yuborilmadi: %s", exc)
         if edit_message_id is not None:
             try:
-                await self.telegram.edit_message_text(chat_id, edit_message_id, START_MENU_TEXT, self._main_menu_keyboard())
+                await self.telegram.edit_message_text(chat_id, edit_message_id, start_text, self._main_menu_keyboard())
                 return
             except TelegramApiError:
                 pass
-        await self._send_chunks(chat_id, START_MENU_TEXT, None, reply_to, self._main_menu_keyboard())
+        await self._send_chunks(chat_id, start_text, None, reply_to, self._main_menu_keyboard())
 
     @staticmethod
     def _about_keyboard() -> dict[str, Any]:

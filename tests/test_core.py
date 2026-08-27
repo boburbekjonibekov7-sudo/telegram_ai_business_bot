@@ -482,8 +482,10 @@ class AdminPanelAndApkTests(unittest.TestCase):
 
     def test_non_owner_start_is_immediate_and_does_not_reveal_provider_or_promo(self) -> None:
         bot = self._bot()
-        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1230}, "from": {"id": 1230}, "text": "/start"}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1230}, "from": {"id": 1230, "first_name": "Ali"}, "text": "/start"}}))
         start_text = bot.telegram.sent[-1]["text"]
+        self.assertIn("Salom, Ali", start_text)
+        self.assertNotIn("Salom Boburbek", start_text)
         self.assertIn("Chatbot accountingizga ulangan", start_text)
         buttons = [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row]
         self.assertIn("📚 Buyruqlar", buttons)
@@ -492,6 +494,13 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertNotIn("Manus", start_text)
         self.assertNotIn("promo", start_text.casefold())
         self.assertNotIn("Mangekyo", start_text)
+
+    def test_start_name_fallbacks_use_username_or_safe_default(self) -> None:
+        bot = self._bot()
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1231}, "from": {"id": 1231, "username": "ali_user"}, "text": "/start"}}))
+        self.assertIn("Salom, @ali_user", bot.telegram.sent[-1]["text"])
+        asyncio.run(bot.process_update({"message": {"message_id": 2, "chat": {"id": 1232}, "from": {"id": 1232}, "text": "/start"}}))
+        self.assertIn("Salom, do‘st", bot.telegram.sent[-1]["text"])
 
     def test_owner_start_uses_same_universal_menu(self) -> None:
         bot = self._bot()
