@@ -930,16 +930,17 @@ class BusinessAiBot:
             await self._render_media_or_text(chat_id, "💬 Avto javoblar ro‘yxati\n\nBu bo‘lim Chat Automation ulanishi orqali boshqariladi.", self._about_keyboard(), "start", message_id)
             return
         if data == "menu:about":
-            await self.telegram.edit_message_text(chat_id, message_id, BOT_ABOUT_TEXT, self._about_keyboard())
+            await self._render_media_or_text(chat_id, BOT_ABOUT_TEXT, self._about_keyboard(), "start", message_id)
             return
         if data == "premium:status":
-            await self._edit_premium_panel(chat_id, user_id, message_id)
+            text, markup = self._premium_panel_content(user_id)
+            await self._render_media_or_text(chat_id, text, markup, "start", message_id)
             return
         if data == "premium:buy":
             await self._send_subscription_offer(chat_id, user_id, None, edit_message_id=message_id)
             return
         if data == "premium:role":
-            await self.telegram.edit_message_text(chat_id, message_id, "Shaxsiy AI rolingizni o‘zgartirish uchun /rol Sizning uslubingiz... buyrug‘ini yuboring.", self._premium_role_keyboard())
+            await self._render_media_or_text(chat_id, "Shaxsiy AI rolingizni o‘zgartirish uchun /rol Sizning uslubingiz... buyrug‘ini yuboring.", self._premium_role_keyboard(), "start", message_id)
             return
         if data in {"admin:home", "admin:stats", "admin:role", "admin:pause", "admin:pause:toggle"}:
             if data == "admin:stats":
@@ -997,10 +998,11 @@ class BusinessAiBot:
 
     async def _send_subscription_offer(self, chat_id: int, user_id: int | None, reply_to: int | None, edit_message_id: int | None = None) -> None:
         if user_id is not None and self._has_premium(user_id):
+            text, markup = self._premium_panel_content(user_id)
             if edit_message_id is not None:
-                await self._edit_premium_panel(chat_id, user_id, edit_message_id)
+                await self._render_media_or_text(chat_id, text, markup, "start", edit_message_id)
             else:
-                await self._send_premium_panel(chat_id, user_id, reply_to)
+                await self._send_chunks(chat_id, text, None, reply_to, markup)
             return
         try:
             link = await self.telegram.create_invoice_link(
@@ -1013,10 +1015,7 @@ class BusinessAiBot:
             markup = {"inline_keyboard": [[{"text": "⭐ 100 Stars — obuna bo‘lish", "url": link}]]}
             text = "VIP funksiyalarni ochish uchun oyiga 100 Telegram Stars to‘lang. To‘lov muvaffaqiyatli tasdiqlangach, VIP access 30 kunga avtomatik ochiladi."
             if edit_message_id is not None:
-                try:
-                    await self.telegram.edit_message_text(chat_id, edit_message_id, text, markup)
-                except TelegramApiError:
-                    await self._send_chunks(chat_id, text, None, None, markup)
+                await self._render_media_or_text(chat_id, text, markup, "start", edit_message_id)
             else:
                 await self._send_chunks(chat_id, text, None, reply_to, markup)
         except (TelegramApiError, ProviderError) as exc:
