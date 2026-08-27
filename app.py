@@ -1041,7 +1041,7 @@ class BusinessAiBot:
         reply_to = message.get("message_id")
         if text.casefold() in {"bekor", "/cancel"}:
             self._clear_owner_session(user_id)
-            await self._send_chunks(chat_id, "✅ Amal bekor qilindi.", None, reply_to, self._admin_panel_keyboard(include_statistics=True, include_main_menu=True, user_id=user_id, include_owner_tools=True))
+            await self._send_chunks(chat_id, "✅ Amal bekor qilindi.", None, reply_to, self._admin_panel_keyboard(include_statistics=user_id == OWNER_ADMIN_ID, include_main_menu=True, user_id=user_id, include_owner_tools=user_id == OWNER_ADMIN_ID))
             return True
         if state == "vip_grant_id":
             try:

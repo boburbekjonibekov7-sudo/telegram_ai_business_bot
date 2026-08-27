@@ -341,6 +341,14 @@ class AdminPanelAndApkTests(unittest.TestCase):
         asyncio.run(bot.process_update({"callback_query": {"id": "owner-tool", "from": user, "data": "owner:vip", "message": {"chat": {"id": 1246}, "message_id": 10}}}))
         self.assertEqual(bot.telegram.callback_answers[-1], ("owner-tool", "Siz admin emassiz.", True))
 
+    def test_non_owner_cannot_use_channel_or_broadcast_tools(self) -> None:
+        bot = self._bot()
+        user = {"id": 1246}
+        bot.store.grant_premium(1246, time.time() + 86400, "test")
+        for callback_id, callback_data in (("channel-forged", "owner:channels"), ("broadcast-forged", "owner:broadcast")):
+            asyncio.run(bot.process_update({"callback_query": {"id": callback_id, "from": user, "data": callback_data, "message": {"chat": {"id": 1246}, "message_id": 10}}}))
+            self.assertEqual(bot.telegram.callback_answers[-1], (callback_id, "Siz admin emassiz.", True))
+
     def test_owner_can_save_channel_and_broadcast_to_vip(self) -> None:
         bot = self._bot()
         owner = {"id": 8645314130}
