@@ -1010,6 +1010,7 @@ class BusinessAiBot:
             enabled_for_all = current != "all"
             self._set_user_setting(user_id, key, "all" if enabled_for_all else "none")
             status = "Hamma" if enabled_for_all else "Hech kim"
+            self._set_user_setting(user_id, "auto_reply_notice", f"✅ .{command} endi {status} uchun ishlaydi.")
             await self.telegram.answer_callback_query(callback_id, f".{command} buyrug‘i: {status} ✅", True)
             await self._render_media_or_text(chat_id, self._auto_replies_text(user_id), self._auto_replies_keyboard(user_id), "start", message_id)
             return
@@ -1465,7 +1466,11 @@ Qisqa qo‘llanma (ochish uchun bosing):
         await self._send_chunks(chat_id, start_text, None, reply_to, self._main_menu_keyboard())
 
     def _auto_replies_text(self, user_id: int | None) -> str:
-        lines = ["💬 Avto javoblar ro‘yxati", "", "⚙️ Buyruqlar ruxsati:"]
+        notice = self._user_setting(user_id or 0, "auto_reply_notice", "")
+        lines = ["💬 Avto javoblar ro‘yxati"]
+        if notice:
+            lines.extend(["", notice])
+        lines.extend(["", "⚙️ Buyruqlar ruxsati:"])
         for command in AUTO_REPLY_COMMANDS:
             status = "Hamma" if self._user_setting(user_id or 0, f"auto_reply_{command}_permission", "all") == "all" else "Hech kim"
             lines.append(f".{command} ni ishlatish: {status}")
