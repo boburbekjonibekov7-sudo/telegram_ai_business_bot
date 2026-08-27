@@ -1308,8 +1308,12 @@ Qisqa qo‘llanma (ochish uchun bosing):
             try:
                 await self.telegram.edit_message_text(chat_id, edit_message_id, text, markup)
                 return
-            except TelegramApiError:
-                pass
+            except (TelegramApiError, AttributeError) as exc:
+                try:
+                    await self.telegram.edit_message_caption(chat_id, edit_message_id, text, markup)
+                    return
+                except (TelegramApiError, AttributeError) as caption_exc:
+                    LOGGER.warning("Text/caption media fallback ishlamadi: %s; %s", exc, caption_exc)
         await self._send_chunks(chat_id, text, None, None, markup)
 
     @staticmethod
@@ -1352,8 +1356,12 @@ Qisqa qo‘llanma (ochish uchun bosing):
             try:
                 await self.telegram.edit_message_text(chat_id, edit_message_id, start_text, self._main_menu_keyboard())
                 return
-            except TelegramApiError:
-                pass
+            except (TelegramApiError, AttributeError) as exc:
+                try:
+                    await self.telegram.edit_message_caption(chat_id, edit_message_id, start_text, self._main_menu_keyboard())
+                    return
+                except (TelegramApiError, AttributeError) as caption_exc:
+                    LOGGER.warning("Start text/caption media fallback ishlamadi: %s; %s", exc, caption_exc)
         await self._send_chunks(chat_id, start_text, None, reply_to, self._main_menu_keyboard())
 
     @staticmethod
