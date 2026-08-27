@@ -173,6 +173,10 @@ class MemoryStore:
         with self.lock:
             self.channels.pop(str(chat_id), None)
 
+    def required_channels(self) -> list[dict[str, str]]:
+        with self.lock:
+            return [dict(channel) for channel in self.channels.values() if channel.get("is_required")]
+
     def broadcast_user_ids(self, target: str = "all") -> list[int]:
         with self.lock:
             users = set(self.started_users)

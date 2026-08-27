@@ -84,6 +84,21 @@ class TelegramBotApi:
             raise TelegramApiError("getChat", "Telegram chat ma’lumotini qaytarmadi")
         return result
 
+    async def get_chat_member(self, chat_id: int | str, user_id: int) -> dict[str, Any]:
+        result = await self.call("getChatMember", {"chat_id": chat_id, "user_id": user_id})
+        if not isinstance(result, dict):
+            raise TelegramApiError("getChatMember", "Telegram member ma’lumotini qaytarmadi")
+        return result
+
+    async def get_chat_join_requests(self, chat_id: int | str, user_id: int | None = None, invite_link: str | None = None, limit: int = 1) -> list[dict[str, Any]]:
+        payload: dict[str, Any] = {"chat_id": chat_id, "limit": max(1, min(100, limit))}
+        if user_id is not None:
+            payload["user_id"] = user_id
+        if invite_link:
+            payload["invite_link"] = invite_link
+        result = await self.call("getChatJoinRequests", payload)
+        return result if isinstance(result, list) else []
+
     async def delete_message(
         self,
         chat_id: int,

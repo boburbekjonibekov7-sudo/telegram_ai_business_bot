@@ -212,6 +212,78 @@ class BusinessAiBot:
         user_id = sender.get("id")
         return isinstance(user_id, int) and user_id in self.admin_user_ids
 
+    def _required_channels(self) -> list[dict[str, Any]]:
+        getter = getattr(self.store, "required_channels", None)
+        channels = getter() if callable(getter) else []
+        return [channel for channel in channels if isinstance(channel, dict) and str(channel.get("channel_type") or "") != "url"]
+
+    @staticmethod
+    def _channel_join_url(channel: dict[str, Any]) -> str | None:
+        invite_link = str(channel.get("invite_link") or "").strip()
+        if invite_link:
+            return invite_link
+        username = str(channel.get("username") or "").strip()
+        if username:
+            return username if username.startswith("http") else f"https://t.me/{username.lstrip('@')}"
+        return None
+
+    def _subscription_gate_keyboard(self, channels: list[dict[str, Any]]) -> dict[str, Any]:
+        rows: list[list[dict[str, str]]] = []
+        for index, channel in enumerate(channels, start=1):
+            url = self._channel_join_url(channel)
+            button: dict[str, str] = {"text": f"💠 {index}-kanal"}
+            if url:
+                button["url"] = url
+            else:
+                button["callback_data"] = f"subscription:channel:{index}"
+            rows.append([button])
+        rows.append([{"text": "Tekshirish ✅", "callback_data": "subscription:check"}])
+        return {"inline_keyboard": rows}
+
+    def _subscription_gate_text(self, channels: list[dict[str, Any]]) -> str:
+        return "Botdan foydalanish uchun quyidagi kanal(lar)ga obuna yoki zayavka tashlang va Tekshirish ✅ tugmasini bosing!"
+
+    async def _is_subscription_satisfied(self, user_id: int | None) -> bool:
+        if user_id is None or user_id == OWNER_ADMIN_ID:
+            return True
+        channels = self._required_channels()
+        if not channels:
+            return True
+        for channel in channels:
+            chat_id = str(channel.get("chat_id") or "")
+            if not chat_id:
+                continue
+            try:
+                member = await self.telegram.get_chat_member(chat_id, user_id)
+                status = str(member.get("status") or "")
+                if status in {"member", "administrator", "creator"} or (status == "restricted" and member.get("is_member") is True):
+                    continue
+            except TelegramApiError as exc:
+                LOGGER.warning("Majburiy obuna membership tekshiruvi xatosi chat=%s: %s", chat_id, exc)
+            try:
+                requests = await self.telegram.get_chat_join_requests(chat_id, user_id, str(channel.get("invite_link") or "") or None, 1)
+                if any(isinstance(request, dict) and isinstance((request.get("user") or {}).get("id"), int) and (request.get("user") or {}).get("id") == user_id for request in requests):
+                    continue
+            except TelegramApiError as exc:
+                LOGGER.warning("Join request tekshiruvi xatosi chat=%s: %s", chat_id, exc)
+            return False
+        return True
+
+    async def _ensure_subscription_or_prompt(self, chat_id: int, user_id: int | None, reply_to: int | None = None, edit_message_id: int | None = None) -> bool:
+        if await self._is_subscription_satisfied(user_id):
+            return True
+        channels = self._required_channels()
+        text = self._subscription_gate_text(channels)
+        markup = self._subscription_gate_keyboard(channels)
+        if edit_message_id is not None:
+            try:
+                await self.telegram.edit_message_text(chat_id, edit_message_id, text, markup)
+            except TelegramApiError:
+                await self._send_chunks(chat_id, text, None, reply_to, markup)
+        else:
+            await self._send_chunks(chat_id, text, None, reply_to, markup)
+        return False
+
     async def _handle_admin_command(
         self,
         message: dict[str, Any],
@@ -223,15 +295,20 @@ class BusinessAiBot:
         argument = parts[1].strip() if len(parts) == 2 else ""
         reply_to = message.get("message_id")
 
+        sender_id = self._user_id(message)
         if command == "/start":
-            sender_id = self._user_id(message)
             if sender_id == OWNER_ADMIN_ID:
                 return False
             if sender_id is not None:
                 marker = getattr(self.store, "mark_started", None)
                 if callable(marker):
                     marker(sender_id)
+            if not await self._ensure_subscription_or_prompt(chat_id, sender_id, reply_to):
+                return True
             await self._send_chunks(chat_id, START_MENU_TEXT, None, reply_to, self._main_menu_keyboard(self._has_premium(sender_id)))
+            return True
+
+        if sender_id != OWNER_ADMIN_ID and not await self._ensure_subscription_or_prompt(chat_id, sender_id, reply_to):
             return True
 
         if command in {"/terms", "/shartlar"}:
@@ -332,6 +409,9 @@ class BusinessAiBot:
         if not is_business and await self._handle_admin_command(message, text, chat_id):
             return
         if not is_business and user_id == OWNER_ADMIN_ID and await self._handle_owner_session(message, text, chat_id):
+            return
+
+        if not is_business and user_id != OWNER_ADMIN_ID and not await self._ensure_subscription_or_prompt(chat_id, user_id, message.get("message_id")):
             return
 
         if not is_business and user_id != OWNER_ADMIN_ID and self._is_promo_trigger(text):
@@ -435,6 +515,17 @@ class BusinessAiBot:
         message_id = message.get("message_id")
         is_owner = isinstance(user_id, int) and user_id == OWNER_ADMIN_ID
         is_premium = isinstance(user_id, int) and self._has_premium(user_id)
+        if data == "subscription:check":
+            await self.telegram.answer_callback_query(callback_id)
+            if await self._is_subscription_satisfied(user_id):
+                await self._edit_owner_screen(chat_id, message_id, START_MENU_TEXT, self._main_menu_keyboard(self._has_premium(user_id)))
+            else:
+                channels = self._required_channels()
+                await self._edit_owner_screen(chat_id, message_id, self._subscription_gate_text(channels), self._subscription_gate_keyboard(channels))
+            return
+        if user_id != OWNER_ADMIN_ID and not await self._is_subscription_satisfied(user_id):
+            await self.telegram.answer_callback_query(callback_id, "Avval kanalga obuna bo‘ling yoki zayavka yuboring.", True)
+            return
         owner_only_callback = data.startswith(("owner:", "vip:", "channel:", "broadcast:"))
         if owner_only_callback and not is_owner:
             await self.telegram.answer_callback_query(callback_id, "Siz admin emassiz.", True)

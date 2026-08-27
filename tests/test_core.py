@@ -235,6 +235,12 @@ class AdminPanelAndApkTests(unittest.TestCase):
         async def get_chat(self, chat_id):
             return {"id": -100123, "title": "Test kanal", "username": "test_channel"}
 
+        async def get_chat_member(self, chat_id, user_id):
+            return {"status": "left"}
+
+        async def get_chat_join_requests(self, chat_id, user_id=None, invite_link=None, limit=1):
+            return []
+
         async def answer_callback_query(self, callback_query_id, text=None, show_alert=False):
             self.callback_answers.append((callback_query_id, text, show_alert))
             return True
@@ -467,6 +473,19 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertEqual(len(bot.telegram.sent), home_message_count + 1)
         self.assertIn("VIP faol emas", bot.telegram.sent[-1]["text"])
         self.assertEqual(bot.telegram.sent[-1]["message_id"], 10)
+
+    def test_required_subscription_keyboard_is_numbered(self) -> None:
+        bot = self._bot()
+        channels = [
+            {"chat_id": "-1001", "title": "A", "username": "a", "channel_type": "required"},
+            {"chat_id": "-1002", "title": "B", "username": "b", "channel_type": "required"},
+        ]
+        keyboard = bot._subscription_gate_keyboard(channels)
+        buttons = keyboard["inline_keyboard"]
+        self.assertEqual(buttons[0][0]["text"], "💠 1-kanal")
+        self.assertEqual(buttons[1][0]["text"], "💠 2-kanal")
+        self.assertEqual(buttons[-1][0]["text"], "Tekshirish ✅")
+        self.assertEqual(buttons[-1][0]["callback_data"], "subscription:check")
 
     def test_promo_inquiries_are_silent(self) -> None:
         bot = self._bot()
