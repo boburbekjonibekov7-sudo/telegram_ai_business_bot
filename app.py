@@ -205,7 +205,7 @@ class BusinessAiBot:
         if not connection_id or not isinstance(chat_id, int) or not isinstance(message_id, int):
             return
         owner_id = await self._business_owner_id(connection_id)
-        if not isinstance(owner_id, int) or not self._vip_settings_allowed(owner_id):
+        if not isinstance(owner_id, int):
             return
         if self._user_id(message) == owner_id:
             return
@@ -233,7 +233,7 @@ class BusinessAiBot:
         if not connection_id or not isinstance(chat_id, int) or not isinstance(message_ids, list):
             return
         owner_id = await self._business_owner_id(connection_id)
-        if not isinstance(owner_id, int) or not self._vip_settings_allowed(owner_id):
+        if not isinstance(owner_id, int):
             return
         if self._user_setting(owner_id, "delete_notify_enabled", "1") != "1":
             return
@@ -697,9 +697,6 @@ class BusinessAiBot:
         if data.startswith("admin:") and not (is_owner or is_premium):
             await self.telegram.answer_callback_query(callback_id, "Siz admin emassiz.", True)
             return
-        if data.startswith(("settings:edit", "settings:delete", "settings:deletions")) and not self._vip_settings_allowed(user_id):
-            await self.telegram.answer_callback_query(callback_id, "Bu funksiya faqat VIP userlar uchun.", True)
-            return
         if data == "admin:stats" and not is_owner:
             await self.telegram.answer_callback_query(callback_id, "Bu bo‘lim faqat owner uchun.", True)
             return
@@ -868,8 +865,6 @@ class BusinessAiBot:
             parts = data.split(":")
             kind = parts[1]
             field = parts[2] if len(parts) > 2 else ""
-            if not self._vip_settings_allowed(user_id):
-                return
             if len(parts) == 3 and field in {"dest", "type"}:
                 await self._render_media_or_text(chat_id, self._settings_feature_text(kind, user_id), self._settings_option_keyboard(kind, field), "start", message_id)
                 return

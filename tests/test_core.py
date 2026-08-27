@@ -679,12 +679,18 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertTrue(any("Qayerga yuborilsin" in label for label in labels))
         self.assertTrue(any("Xabar turi" in label for label in labels))
 
-    def test_free_user_cannot_open_vip_edit_delete_settings(self) -> None:
+    def test_free_user_can_open_and_change_edit_delete_settings(self) -> None:
         bot = self._bot()
         user = {"id": 1262}
-        for callback_id, data in (("free-edit", "settings:edit"), ("free-delete", "settings:delete")):
-            asyncio.run(bot.process_update({"callback_query": {"id": callback_id, "from": user, "data": data, "message": {"chat": {"id": 1262}, "message_id": 10}}}))
-            self.assertEqual(bot.telegram.callback_answers[-1], (callback_id, "Bu funksiya faqat VIP userlar uchun.", True))
+        base = {"chat": {"id": 1262}, "message_id": 10}
+        asyncio.run(bot.process_update({"callback_query": {"id": "free-edit", "from": user, "data": "settings:edit", "message": base}}))
+        self.assertIn("Tahrirlangan xabarni yuborish: off", bot.telegram.sent[-1]["text"])
+        asyncio.run(bot.process_update({"callback_query": {"id": "free-edit-on", "from": user, "data": "settings:edit:toggle", "message": base}}))
+        self.assertEqual(bot.store.get_user_setting(1262, "edit_notify_enabled"), "1")
+        asyncio.run(bot.process_update({"callback_query": {"id": "free-delete", "from": user, "data": "settings:delete", "message": base}}))
+        self.assertIn("O‘chirilgan xabarni yuborish: on", bot.telegram.sent[-1]["text"])
+        asyncio.run(bot.process_update({"callback_query": {"id": "free-delete-off", "from": user, "data": "settings:delete:toggle", "message": base}}))
+        self.assertEqual(bot.store.get_user_setting(1262, "delete_notify_enabled"), "0")
 
     def test_vip_edit_settings_choices_are_persistent(self) -> None:
         bot = self._bot()
