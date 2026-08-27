@@ -857,16 +857,16 @@ class BusinessAiBot:
             await self._render_media_or_text(chat_id, self._guide_caption(GUIDE_USAGE_CAPTION), self._guide_usage_keyboard(), "usage_guide", message_id)
             return
         if data == "menu:profile":
-            await self.telegram.edit_message_text(chat_id, message_id, self._profile_text(user_id), self._profile_keyboard())
+            await self._render_media_or_text(chat_id, self._profile_text(user_id), self._profile_keyboard(), "start", message_id)
             return
         if data == "profile:home":
-            await self.telegram.edit_message_text(chat_id, message_id, self._profile_text(user_id), self._profile_keyboard())
+            await self._render_media_or_text(chat_id, self._profile_text(user_id), self._profile_keyboard(), "start", message_id)
             return
         if data == "profile:vip":
-            await self.telegram.edit_message_text(chat_id, message_id, VIP_FEATURES_TEXT, self._vip_features_keyboard())
+            await self._render_media_or_text(chat_id, VIP_FEATURES_TEXT, self._vip_features_keyboard(), "start", message_id)
             return
         if data == "profile:topup":
-            await self.telegram.edit_message_text(chat_id, message_id, "💳 Balansni to‘ldirish\n\nTo‘lov usulini tanlang:", self._topup_keyboard())
+            await self._render_media_or_text(chat_id, "💳 Balansni to‘ldirish\n\nTo‘lov usulini tanlang:", self._topup_keyboard(), "start", message_id)
             return
         if data == "menu:settings":
             await self._render_media_or_text(chat_id, self._settings_text(user_id), self._settings_keyboard(user_id), "start", message_id)
@@ -927,7 +927,7 @@ class BusinessAiBot:
             await self._render_media_or_text(chat_id, f"{title}\n\nVIP 💎 imkoniyatlari uchun quyidagi tugmani bosing.", {"inline_keyboard": [[{"text": "VIP 💎", "callback_data": "profile:vip"}], [{"text": "🔙 Sozlamalar", "callback_data": "menu:settings"}]]}, "start", message_id)
             return
         if data == "menu:auto_replies":
-            await self.telegram.edit_message_text(chat_id, message_id, "💬 Avto javoblar ro‘yxati\n\nBu bo‘lim Chat Automation ulanishi orqali boshqariladi.", self._about_keyboard())
+            await self._render_media_or_text(chat_id, "💬 Avto javoblar ro‘yxati\n\nBu bo‘lim Chat Automation ulanishi orqali boshqariladi.", self._about_keyboard(), "start", message_id)
             return
         if data == "menu:about":
             await self.telegram.edit_message_text(chat_id, message_id, BOT_ABOUT_TEXT, self._about_keyboard())

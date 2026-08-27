@@ -600,6 +600,24 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertEqual(bot.telegram.edited_media[-1]["media"], "commands-photo")
         self.assertEqual(bot.telegram.deleted, [])
 
+    def test_profile_auto_replies_settings_media_callbacks_edit_one_message(self) -> None:
+        bot = self._bot()
+        bot.store.set_setting("start_media_file_id", "start-photo")
+        user = {"id": 1254, "first_name": "Ali"}
+        base = {"chat": {"id": 1254}, "message_id": 10}
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1254}, "from": user, "text": "/start"}}))
+        for callback_id, data, marker in (
+            ("profile-media", "menu:profile", "Profil"),
+            ("auto-media", "menu:auto_replies", "Avto javoblar ro‘yxati"),
+            ("settings-media", "menu:settings", "@InfoUchihaBot sozlamalari"),
+        ):
+            before = len(bot.telegram.edited_media)
+            asyncio.run(bot.process_update({"callback_query": {"id": callback_id, "from": user, "data": data, "message": base}}))
+            self.assertEqual(len(bot.telegram.edited_media), before + 1)
+            self.assertEqual(bot.telegram.edited_media[-1]["media"], "start-photo")
+            self.assertIn(marker, bot.telegram.edited_media[-1]["caption"])
+            self.assertEqual(bot.telegram.deleted, [])
+
     def test_configured_media_is_sent_with_file_id(self) -> None:
         bot = self._bot()
         bot.store.set_setting("start_media_file_id", "start-photo")
