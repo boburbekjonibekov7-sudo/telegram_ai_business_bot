@@ -44,6 +44,17 @@ class StorageTests(unittest.TestCase):
             reloaded = JsonStore(path)
             self.assertEqual(reloaded.get_role("default"), "Faqat qisqa javob bering")
 
+    def test_json_store_user_settings_survive_reload(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            store = JsonStore(path)
+            store.set_user_setting(500, "edit_notify_enabled", "1")
+            store.set_user_setting(500, "edit_notify_destination", "bot")
+            reloaded = JsonStore(path)
+            self.assertEqual(reloaded.get_user_setting(500, "edit_notify_enabled"), "1")
+            self.assertEqual(reloaded.get_user_setting(500, "edit_notify_destination"), "bot")
+            self.assertEqual(reloaded.get_user_setting(501, "edit_notify_enabled", "0"), "0")
+
     def test_memory_store_role_can_reset(self) -> None:
         store = MemoryStore()
         store.set_role("Rasmiy uslub")
@@ -282,7 +293,7 @@ class AdminPanelAndApkTests(unittest.TestCase):
         bot = BusinessAiBot(settings, store=MemoryStore())
         bot.telegram = self.FakeTelegram()
         bot.ai = self.FakeAI()
-        bot.connections["bc-1"] = {"id": "bc-1", "is_enabled": True, "rights": {"can_reply": True}}
+        bot.connections["bc-1"] = {"id": "bc-1", "user": {"id": 8645314130}, "is_enabled": True, "rights": {"can_reply": True}}
         return bot
 
     def test_pause_toggle_is_persistent_in_store(self) -> None:
@@ -643,6 +654,77 @@ class AdminPanelAndApkTests(unittest.TestCase):
         asyncio.run(bot.process_update({"callback_query": {"id": "vip-back", "from": user, "data": "profile:home", "message": {"chat": {"id": 1258}, "message_id": 10}}}))
         self.assertIn("Profil", bot.telegram.sent[-1]["text"])
         self.assertIn("VIP 💎", [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row])
+
+    def test_vip_edit_settings_screen_has_requested_controls(self) -> None:
+        bot = self._bot()
+        user = {"id": 1261}
+        bot.store.grant_premium(1261, time.time() + 86400, "test")
+        asyncio.run(bot.process_update({"callback_query": {"id": "edit-settings", "from": user, "data": "settings:edit", "message": {"chat": {"id": 1261}, "message_id": 10}}}))
+        screen = bot.telegram.sent[-1]
+        self.assertIn("Tahrirlangan xabarni yuborish: off", screen["text"])
+        labels = [button["text"] for row in screen["reply_markup"]["inline_keyboard"] for button in row]
+        self.assertTrue(any("Qayerga yuborilsin" in label for label in labels))
+        self.assertTrue(any("Xabar turi" in label for label in labels))
+        self.assertTrue(any("va tahrirlangan vaqtni ko‘rsatish" in label for label in labels))
+
+    def test_vip_delete_settings_screen_has_requested_controls(self) -> None:
+        bot = self._bot()
+        user = {"id": 1265}
+        bot.store.grant_premium(1265, time.time() + 86400, "test")
+        asyncio.run(bot.process_update({"callback_query": {"id": "delete-settings", "from": user, "data": "settings:delete", "message": {"chat": {"id": 1265}, "message_id": 10}}}))
+        screen = bot.telegram.sent[-1]
+        self.assertIn("O‘chirilgan xabarni yuborish: on", screen["text"])
+        self.assertIn("Yuborilgan va o‘chirilgan vaqtni ko‘rsatish: off", screen["text"])
+        labels = [button["text"] for row in screen["reply_markup"]["inline_keyboard"] for button in row]
+        self.assertTrue(any("Qayerga yuborilsin" in label for label in labels))
+        self.assertTrue(any("Xabar turi" in label for label in labels))
+
+    def test_free_user_cannot_open_vip_edit_delete_settings(self) -> None:
+        bot = self._bot()
+        user = {"id": 1262}
+        for callback_id, data in (("free-edit", "settings:edit"), ("free-delete", "settings:delete")):
+            asyncio.run(bot.process_update({"callback_query": {"id": callback_id, "from": user, "data": data, "message": {"chat": {"id": 1262}, "message_id": 10}}}))
+            self.assertEqual(bot.telegram.callback_answers[-1], (callback_id, "Bu funksiya faqat VIP userlar uchun.", True))
+
+    def test_vip_edit_settings_choices_are_persistent(self) -> None:
+        bot = self._bot()
+        user = {"id": 1263}
+        bot.store.grant_premium(1263, time.time() + 86400, "test")
+        base = {"chat": {"id": 1263}, "message_id": 10}
+        def click(callback_id: str, data: str) -> None:
+            asyncio.run(bot.process_update({"callback_query": {"id": callback_id, "from": user, "data": data, "message": base}}))
+        click("toggle", "settings:edit")
+        click("toggle-on", "settings:edit:toggle")
+        click("dest-menu", "settings:edit:dest")
+        click("dest-bot", "settings:edit:dest:bot")
+        click("type-menu", "settings:edit:type")
+        click("type-copy", "settings:edit:type:copy")
+        click("time-on", "settings:edit:time")
+        self.assertEqual(bot.store.get_user_setting(1263, "edit_notify_enabled"), "1")
+        self.assertEqual(bot.store.get_user_setting(1263, "edit_notify_destination"), "bot")
+        self.assertEqual(bot.store.get_user_setting(1263, "edit_notify_type"), "copy")
+        self.assertEqual(bot.store.get_user_setting(1263, "edit_notify_timestamp"), "1")
+        self.assertIn("Tahrirlangan xabarni yuborish: on", bot.telegram.sent[-1]["text"])
+
+    def test_vip_edit_and_delete_business_notifications_use_saved_settings(self) -> None:
+        bot = self._bot()
+        owner_id = 8645314130
+        bot.store.set_user_setting(owner_id, "edit_notify_enabled", "1")
+        bot.store.set_user_setting(owner_id, "edit_notify_destination", "bot")
+        bot.store.set_user_setting(owner_id, "edit_notify_timestamp", "1")
+        bot.store.set_user_setting(owner_id, "delete_notify_enabled", "1")
+        bot.store.set_user_setting(owner_id, "delete_notify_destination", "bot")
+        incoming = {"message_id": 77, "business_connection_id": "bc-1", "chat": {"id": 9001}, "from": {"id": 1264}, "date": 1700000000, "text": "Salom, narxi qancha?"}
+        asyncio.run(bot.process_update({"business_message": incoming}))
+        edited = {"message_id": 77, "business_connection_id": "bc-1", "chat": {"id": 9001}, "from": {"id": 1264}, "edit_date": 1700000060, "text": "Salom, narxi qanchaligini ayta olasizmi?"}
+        asyncio.run(bot.process_update({"edited_business_message": edited}))
+        self.assertEqual(bot.telegram.sent[-1]["chat_id"], owner_id)
+        self.assertIn("Salom, narxi qancha?", bot.telegram.sent[-1]["text"])
+        self.assertIn("Salom, narxi qanchaligini ayta olasizmi?", bot.telegram.sent[-1]["text"])
+        asyncio.run(bot.process_update({"deleted_business_messages": {"business_connection_id": "bc-1", "chat": {"id": 9001}, "message_ids": [77], "date": 1700000120}}))
+        self.assertEqual(bot.telegram.sent[-1]["chat_id"], owner_id)
+        self.assertIn("o‘chirdi", bot.telegram.sent[-1]["text"])
+        self.assertIn("Salom, narxi qanchaligini ayta olasizmi?", bot.telegram.sent[-1]["text"])
 
     def test_required_subscription_keyboard_is_numbered(self) -> None:
         bot = self._bot()

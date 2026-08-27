@@ -19,7 +19,7 @@ class JsonStore:
 
     def _load(self) -> dict[str, Any]:
         if not self.path.exists():
-            return {"__role__": "", "__manual_pause_enabled__": True, "__settings__": {}}
+            return {"__role__": "", "__manual_pause_enabled__": True, "__settings__": {}, "__user_settings__": {}}
         try:
             loaded: Any = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
@@ -28,11 +28,12 @@ class JsonStore:
                     "__owner_activity__": loaded.get("__owner_activity__", {}) if isinstance(loaded.get("__owner_activity__", {}), dict) else {},
                     "__manual_pause_enabled__": loaded.get("__manual_pause_enabled__", True) is not False,
                     "__settings__": loaded.get("__settings__", {}) if isinstance(loaded.get("__settings__", {}), dict) else {},
+                    "__user_settings__": loaded.get("__user_settings__", {}) if isinstance(loaded.get("__user_settings__", {}), dict) else {},
                 }
                 result.update({
                     str(key): value
                     for key, value in loaded.items()
-                    if key not in {"__role__", "__owner_activity__", "__manual_pause_enabled__", "__settings__"} and isinstance(value, list)
+                    if key not in {"__role__", "__owner_activity__", "__manual_pause_enabled__", "__settings__", "__user_settings__"} and isinstance(value, list)
                 })
                 return result
         except (OSError, json.JSONDecodeError):
@@ -111,6 +112,32 @@ class JsonStore:
     def set_manual_pause_enabled(self, enabled: bool) -> None:
         with self.lock:
             self.data["__manual_pause_enabled__"] = bool(enabled)
+            self._save()
+
+    def get_user_setting(self, user_id: int, key: str, default: str = "") -> str:
+        with self.lock:
+            values = self.data.get("__user_settings__", {})
+            if not isinstance(values, dict):
+                return default
+            user_values = values.get(str(user_id), {})
+            return str(user_values.get(str(key), default)) if isinstance(user_values, dict) else default
+
+    def set_user_setting(self, user_id: int, key: str, value: str) -> None:
+        with self.lock:
+            values = self.data.setdefault("__user_settings__", {})
+            if not isinstance(values, dict):
+                values = {}
+                self.data["__user_settings__"] = values
+            user_values = values.setdefault(str(user_id), {})
+            if isinstance(user_values, dict):
+                user_values[str(key)] = str(value)
+            self._save()
+
+    def delete_user_setting(self, user_id: int, key: str) -> None:
+        with self.lock:
+            values = self.data.get("__user_settings__", {})
+            if isinstance(values, dict) and isinstance(values.get(str(user_id)), dict):
+                values[str(user_id)].pop(str(key), None)
             self._save()
 
     def mark_owner_activity(self, key: str, timestamp: float | None = None) -> None:

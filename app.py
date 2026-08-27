@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import time
 import signal
@@ -169,9 +170,10 @@ class BusinessAiBot:
             await self.handle_message(message, is_business=True)
             return
         if "edited_business_message" in update:
-            # Editing an incoming message should not create a second AI answer.
+            await self._handle_edited_business_message(update["edited_business_message"])
             return
         if "deleted_business_messages" in update:
+            await self._handle_deleted_business_messages(update["deleted_business_messages"])
             return
         if "message" in update:
             message = update["message"]
@@ -179,6 +181,80 @@ class BusinessAiBot:
                 await self.handle_successful_payment(message)
                 return
             await self.handle_message(message, is_business=False)
+
+    async def _business_owner_id(self, connection_id: str) -> int | None:
+        connection = await self._get_connection(connection_id)
+        owner_id = (connection or {}).get("user", {}).get("id")
+        return owner_id if isinstance(owner_id, int) else None
+
+    @staticmethod
+    def _event_time(value: Any) -> str:
+        timestamp = value if isinstance(value, int) else int(time.time())
+        return time.strftime("%Y-%m-%d %H:%M", time.localtime(timestamp))
+
+    async def _send_event_notice(self, owner_id: int, connection_id: str, chat_id: int, text: str, destination: str) -> None:
+        if destination == "chat":
+            await self._send_chunks(chat_id, text, connection_id, None)
+        else:
+            await self._send_chunks(owner_id, text, None, None)
+
+    async def _handle_edited_business_message(self, message: dict[str, Any]) -> None:
+        connection_id = str(message.get("business_connection_id") or "")
+        chat_id = self._chat_id(message)
+        message_id = message.get("message_id")
+        if not connection_id or not isinstance(chat_id, int) or not isinstance(message_id, int):
+            return
+        owner_id = await self._business_owner_id(connection_id)
+        if not isinstance(owner_id, int) or not self._vip_settings_allowed(owner_id):
+            return
+        if self._user_id(message) == owner_id:
+            return
+        if self._user_setting(owner_id, "edit_notify_enabled", "0") != "1":
+            return
+        cached = self._cached_business_message(owner_id, connection_id, chat_id, message_id) or {}
+        old_text = str(cached.get("text") or "(oldingi xabar matni mavjud emas)")
+        new_text = self._message_text(message) or "(matnsiz xabar)"
+        destination = self._user_setting(owner_id, "edit_notify_destination", "chat")
+        message_type = self._user_setting(owner_id, "edit_notify_type", "notification")
+        show_time = self._user_setting(owner_id, "edit_notify_timestamp", "0") == "1"
+        if message_type == "copy":
+            notice = new_text
+        else:
+            notice = f"👤 Suhbatdoshingiz xabarini tahrirladi ✏️\n\n💬 {old_text}\n\n✏️ {new_text}"
+        if show_time:
+            notice += f"\n\n🕔 Yuborilgan vaqt: {self._event_time(cached.get('date'))}\n🕔 Tahrirlangan vaqt: {self._event_time(message.get('edit_date'))}"
+        await self._send_event_notice(owner_id, connection_id, chat_id, notice, destination)
+        self._remember_business_message(owner_id, message)
+
+    async def _handle_deleted_business_messages(self, update: dict[str, Any]) -> None:
+        connection_id = str(update.get("business_connection_id") or "")
+        chat_id = self._chat_id(update)
+        message_ids = update.get("message_ids")
+        if not connection_id or not isinstance(chat_id, int) or not isinstance(message_ids, list):
+            return
+        owner_id = await self._business_owner_id(connection_id)
+        if not isinstance(owner_id, int) or not self._vip_settings_allowed(owner_id):
+            return
+        if self._user_setting(owner_id, "delete_notify_enabled", "1") != "1":
+            return
+        destination = self._user_setting(owner_id, "delete_notify_destination", "bot")
+        message_type = self._user_setting(owner_id, "delete_notify_type", "notification")
+        show_time = self._user_setting(owner_id, "delete_notify_timestamp", "0") == "1"
+        for raw_message_id in message_ids[:100]:
+            if not isinstance(raw_message_id, int):
+                continue
+            cached = self._cached_business_message(owner_id, connection_id, chat_id, raw_message_id) or {}
+            if cached.get("sender_id") == owner_id:
+                continue
+            old_text = str(cached.get("text") or "(o‘chirilgan xabar matni mavjud emas)")
+            if message_type == "copy":
+                notice = old_text
+            else:
+                notice = f"👤 Suhbatdoshingiz xabarini o‘chirdi 🗑\n\n💬 {old_text}"
+            if show_time:
+                notice += f"\n\n🕔 Yuborilgan vaqt: {self._event_time(cached.get('date'))}\n🕔 O‘chirilgan vaqt: {self._event_time(update.get('date'))}"
+            await self._send_event_notice(owner_id, connection_id, chat_id, notice, destination)
+            self._forget_business_message(owner_id, connection_id, chat_id, raw_message_id)
 
     def _cache_connection(self, connection: dict[str, Any]) -> None:
         connection_id = connection.get("id")
@@ -225,6 +301,41 @@ class BusinessAiBot:
     def _message_text(message: dict[str, Any]) -> str:
         text = message.get("text") or message.get("caption") or ""
         return str(text).strip()
+
+    def _message_cache(self, owner_id: int) -> dict[str, dict[str, Any]]:
+        raw = self._user_setting(owner_id, "business_message_cache", "{}")
+        try:
+            loaded = json.loads(raw)
+            return loaded if isinstance(loaded, dict) else {}
+        except (TypeError, json.JSONDecodeError):
+            return {}
+
+    def _remember_business_message(self, owner_id: int, message: dict[str, Any]) -> None:
+        message_id = message.get("message_id")
+        connection_id = str(message.get("business_connection_id") or "")
+        chat_id = self._chat_id(message)
+        if not isinstance(message_id, int) or not connection_id or not isinstance(chat_id, int):
+            return
+        cache = self._message_cache(owner_id)
+        cache[f"{connection_id}:{chat_id}:{message_id}"] = {
+            "text": self._message_text(message),
+            "sender_id": (message.get("from") or {}).get("id") if isinstance((message.get("from") or {}).get("id"), int) else None,
+            "date": message.get("date") if isinstance(message.get("date"), int) else int(time.time()),
+            "chat_id": chat_id,
+            "connection_id": connection_id,
+            "message_id": message_id,
+        }
+        if len(cache) > 100:
+            cache = dict(list(cache.items())[-100:])
+        self._set_user_setting(owner_id, "business_message_cache", json.dumps(cache, ensure_ascii=False, separators=(",", ":")))
+
+    def _cached_business_message(self, owner_id: int, connection_id: str, chat_id: int, message_id: int) -> dict[str, Any] | None:
+        return self._message_cache(owner_id).get(f"{connection_id}:{chat_id}:{message_id}")
+
+    def _forget_business_message(self, owner_id: int, connection_id: str, chat_id: int, message_id: int) -> None:
+        cache = self._message_cache(owner_id)
+        cache.pop(f"{connection_id}:{chat_id}:{message_id}", None)
+        self._set_user_setting(owner_id, "business_message_cache", json.dumps(cache, ensure_ascii=False, separators=(",", ":")))
 
     @staticmethod
     def _normalized_text(text: str) -> str:
@@ -451,6 +562,8 @@ class BusinessAiBot:
             if self._is_apk_message(message) and user_id != business_owner_id:
                 await self._delete_business_apk(message, business_connection_id)
                 return
+            if isinstance(business_owner_id, int) and user_id != business_owner_id:
+                self._remember_business_message(business_owner_id, message)
 
         text = self._message_text(message)
         owner_session = self._owner_session(user_id) if not is_business and user_id == OWNER_ADMIN_ID else None
@@ -583,6 +696,9 @@ class BusinessAiBot:
             return
         if data.startswith("admin:") and not (is_owner or is_premium):
             await self.telegram.answer_callback_query(callback_id, "Siz admin emassiz.", True)
+            return
+        if data.startswith(("settings:edit", "settings:delete", "settings:deletions")) and not self._vip_settings_allowed(user_id):
+            await self.telegram.answer_callback_query(callback_id, "Bu funksiya faqat VIP userlar uchun.", True)
             return
         if data == "admin:stats" and not is_owner:
             await self.telegram.answer_callback_query(callback_id, "Bu bo‘lim faqat owner uchun.", True)
@@ -742,8 +858,38 @@ class BusinessAiBot:
             await self.telegram.edit_message_text(chat_id, message_id, "💳 Balansni to‘ldirish\n\nTo‘lov usulini tanlang:", self._topup_keyboard())
             return
         if data == "menu:settings":
-            await self._render_media_or_text(chat_id, self._settings_text(user_id), self._settings_keyboard(), "start", message_id)
+            await self._render_media_or_text(chat_id, self._settings_text(user_id), self._settings_keyboard(user_id), "start", message_id)
             return
+        if data in {"settings:edit", "settings:delete", "settings:deletions"}:
+            kind = "delete" if data != "settings:edit" else "edit"
+            await self._render_media_or_text(chat_id, self._settings_feature_text(kind, user_id), self._settings_feature_keyboard(kind, user_id), "start", message_id)
+            return
+        if data.startswith(("settings:edit:", "settings:delete:")):
+            parts = data.split(":")
+            kind = parts[1]
+            field = parts[2] if len(parts) > 2 else ""
+            if not self._vip_settings_allowed(user_id):
+                return
+            if len(parts) == 3 and field in {"dest", "type"}:
+                await self._render_media_or_text(chat_id, self._settings_feature_text(kind, user_id), self._settings_option_keyboard(kind, field), "start", message_id)
+                return
+            if len(parts) == 3 and field in {"toggle", "time"}:
+                key = f"{kind}_notify_enabled" if field == "toggle" else f"{kind}_notify_timestamp"
+                default = "0" if (kind == "edit" or field == "time") else "1"
+                current = self._user_setting(user_id, key, default) == "1"
+                self._set_user_setting(user_id, key, "0" if current else "1")
+                await self._render_media_or_text(chat_id, self._settings_feature_text(kind, user_id), self._settings_feature_keyboard(kind, user_id), "start", message_id)
+                return
+            if len(parts) == 4:
+                value = parts[3]
+                if field == "dest" and value in {"chat", "bot"}:
+                    self._set_user_setting(user_id, f"{kind}_notify_destination", value)
+                elif field == "type" and value in {"notification", "copy"}:
+                    self._set_user_setting(user_id, f"{kind}_notify_type", value)
+                else:
+                    return
+                await self._render_media_or_text(chat_id, self._settings_feature_text(kind, user_id), self._settings_feature_keyboard(kind, user_id), "start", message_id)
+                return
         if data == "settings:commands":
             await self._render_media_or_text(chat_id, "📗 Buyruqlar ruxsati\n\nQaysi buyruqni kim ishlatishini Telegram Business sozlamalaridan belgilaysiz.", self._settings_back_keyboard(), "start", message_id)
             return
@@ -933,11 +1079,33 @@ Qisqa qo‘llanma (ochish uchun bosing):
 💱 Valyuta hisoblash — «100 USD» deb yozilsa kursini hisoblab beradi.
 🟢 Buyruqlar ruxsati — qaysi buyruqni kim ishlatishini belgilaysiz."""
 
-    @staticmethod
-    def _settings_keyboard() -> dict[str, Any]:
+    def _user_setting(self, user_id: int, key: str, default: str) -> str:
+        getter = getattr(self.store, "get_user_setting", None)
+        if callable(getter):
+            try:
+                return str(getter(user_id, key, default) or default)
+            except Exception as exc:
+                LOGGER.warning("User setting o‘qilmadi user=%s key=%s: %s", user_id, key, exc)
+        return default
+
+    def _set_user_setting(self, user_id: int, key: str, value: str) -> None:
+        setter = getattr(self.store, "set_user_setting", None)
+        if callable(setter):
+            try:
+                setter(user_id, key, value)
+            except Exception as exc:
+                LOGGER.warning("User setting yozilmadi user=%s key=%s: %s", user_id, key, exc)
+
+    def _vip_settings_allowed(self, user_id: int | None) -> bool:
+        return isinstance(user_id, int) and (user_id == OWNER_ADMIN_ID or self._has_premium(user_id))
+
+    def _settings_keyboard(self, user_id: int | None = None) -> dict[str, Any]:
+        uid = user_id if isinstance(user_id, int) else 0
+        edit_state = self._user_setting(uid, "edit_notify_enabled", "0") == "1" if uid else False
+        delete_state = self._user_setting(uid, "delete_notify_enabled", "1") == "1" if uid else True
         return {"inline_keyboard": [
             [{"text": "🤝 Chatbotni sozlash", "url": "tg://settings/edit"}],
-            [{"text": "✏️ Tahrirlanish: off", "callback_data": "settings:edit"}, {"text": "🗑 O‘chirishlar: on", "callback_data": "settings:deletions"}],
+            [{"text": f"✏️ Tahrirlash: {'on' if edit_state else 'off'}", "callback_data": "settings:edit"}, {"text": f"🗑 O‘chirishlar: {'on' if delete_state else 'off'}", "callback_data": "settings:delete"}],
             [{"text": "🤖 APK o‘chirish: on", "callback_data": "settings:apk"}, {"text": "••• Yozmoqda: on", "callback_data": "settings:typing"}],
             [{"text": "✉️ Avto javob berganda xabarni o‘qish: on", "callback_data": "settings:read"}],
             [{"text": "💱 Valyuta miqdor hisoblash: on", "callback_data": "settings:currency"}],
@@ -949,6 +1117,60 @@ Qisqa qo‘llanma (ochish uchun bosing):
     @staticmethod
     def _settings_back_keyboard() -> dict[str, Any]:
         return {"inline_keyboard": [[{"text": "🔙 Sozlamalar", "callback_data": "menu:settings"}], [{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}]]}
+
+    @staticmethod
+    def _settings_option_keyboard(kind: str, field: str) -> dict[str, Any]:
+        prefix = f"settings:{kind}:{field}"
+        if field == "dest":
+            return {"inline_keyboard": [[
+                {"text": "🗣 Suhbatdoshga", "callback_data": f"{prefix}:chat"},
+                {"text": "🤖 Botga", "callback_data": f"{prefix}:bot"},
+            ], [{"text": "🔙 Orqaga", "callback_data": f"settings:{kind}"}]]}
+        if field == "type":
+            return {"inline_keyboard": [[
+                {"text": "📩 Bildirishnoma", "callback_data": f"{prefix}:notification"},
+                {"text": "📋 Xabar nusxasi", "callback_data": f"{prefix}:copy"},
+            ], [{"text": "🔙 Orqaga", "callback_data": f"settings:{kind}"}]]}
+        return {"inline_keyboard": [[{"text": "🔙 Orqaga", "callback_data": f"settings:{kind}"}]]}
+
+    def _settings_feature_text(self, kind: str, user_id: int) -> str:
+        is_edit = kind == "edit"
+        enabled = self._user_setting(user_id, f"{kind}_notify_enabled", "0" if is_edit else "1") == "1"
+        destination = self._user_setting(user_id, f"{kind}_notify_destination", "chat" if is_edit else "bot")
+        message_type = self._user_setting(user_id, f"{kind}_notify_type", "notification")
+        show_time = self._user_setting(user_id, f"{kind}_notify_timestamp", "0") == "1"
+        if is_edit:
+            title = "👤 Suhbatdoshingiz o‘zini xabarini tahrirlaganda unga yuboriladigan Tahrirlangan xabar ko‘rinishi 📬"
+            action = "✏️ Tahrirlangan xabarni yuborish"
+            example = "📩 Suhbatdosh quyidagi xabarini tahrirladi:\n\n💬 Salom, narxi qancha?\n\n✏️ Salom, narxi qanchaligini ayta olasizmi?"
+        else:
+            title = "👤 Suhbatdoshingiz o‘zini xabarini o‘chirganda botga yuboriladigan O‘chirilgan xabar ko‘rinishi 📬"
+            action = "🗑 O‘chirilgan xabarni yuborish"
+            example = "🗑 Suhbatdosh quyidagi xabarini o‘chirdi:\n\n💬 Salom, narxi qancha?"
+        destination_label = "Suhbatdoshga" if destination == "chat" else "Botga"
+        type_label = "Bildirishnoma" if message_type == "notification" else ("Tahrirlangan xabar nusxasi" if is_edit else "O‘chirilgan xabar nusxasi")
+        type_target = "suhbatdoshga" if destination == "chat" else "botga"
+        time_label = "on" if show_time else "off"
+        return f"{title}\n\n{example}\n\n{action}: {'on' if enabled else 'off'}\n🤷‍♂️ Qayerga yuborilsin: {destination_label}\n💬 Xabar turi {type_target}: {type_label}\n⏰ Yuborilgan va {'tahrirlangan' if is_edit else 'o‘chirilgan'} vaqtni ko‘rsatish: {time_label}"
+
+    def _settings_feature_keyboard(self, kind: str, user_id: int) -> dict[str, Any]:
+        is_edit = kind == "edit"
+        enabled = self._user_setting(user_id, f"{kind}_notify_enabled", "0" if is_edit else "1") == "1"
+        destination = self._user_setting(user_id, f"{kind}_notify_destination", "chat" if is_edit else "bot")
+        message_type = self._user_setting(user_id, f"{kind}_notify_type", "notification")
+        show_time = self._user_setting(user_id, f"{kind}_notify_timestamp", "0") == "1"
+        action = "✏️ Tahrirlangan xabarni yuborish" if is_edit else "🗑 O‘chirilgan xabarni yuborish"
+        dest_label = "Suhbatdoshga" if destination == "chat" else "Botga"
+        type_label = "Bildirishnoma" if message_type == "notification" else ("Tahrirlangan xabar nusxasi" if is_edit else "O‘chirilgan xabar nusxasi")
+        type_target = "suhbatdoshga" if destination == "chat" else "botga"
+        time_label = "on" if show_time else "off"
+        return {"inline_keyboard": [
+            [{"text": f"{action}: {'on' if enabled else 'off'}", "callback_data": f"settings:{kind}:toggle"}],
+            [{"text": f"🤷‍♂️ Qayerga yuborilsin: {dest_label}", "callback_data": f"settings:{kind}:dest"}],
+            [{"text": f"💬 Xabar turi {type_target}: {type_label}", "callback_data": f"settings:{kind}:type"}],
+            [{"text": f"⏰ Yuborilgan va {'tahrirlangan' if is_edit else 'o‘chirilgan'} vaqtni ko‘rsatish: {time_label}", "callback_data": f"settings:{kind}:time"}],
+            [{"text": "🔙 Sozlamalar", "callback_data": "menu:settings"}],
+        ]}
 
     def _get_setting(self, key: str, default: str = "") -> str:
         getter = getattr(self.store, "get_setting", None)

@@ -23,6 +23,7 @@ class MemoryStore:
         self.promo_redemptions: set[int] = set()
         self.user_roles: dict[int, str] = {}
         self.user_pause_enabled: dict[int, bool] = {}
+        self.user_settings: dict[int, dict[str, str]] = {}
         self.business_profiles: dict[str, dict[str, int | str]] = {}
         self.channels: dict[str, dict[str, str]] = {}
         self.admin_sessions: dict[int, dict[str, object]] = {}
@@ -138,6 +139,18 @@ class MemoryStore:
     def set_user_manual_pause_enabled(self, user_id: int, enabled: bool) -> None:
         with self.lock:
             self.user_pause_enabled[user_id] = bool(enabled)
+
+    def get_user_setting(self, user_id: int, key: str, default: str = "") -> str:
+        with self.lock:
+            return str(self.user_settings.get(int(user_id), {}).get(str(key), default))
+
+    def set_user_setting(self, user_id: int, key: str, value: str) -> None:
+        with self.lock:
+            self.user_settings.setdefault(int(user_id), {})[str(key)] = str(value)
+
+    def delete_user_setting(self, user_id: int, key: str) -> None:
+        with self.lock:
+            self.user_settings.get(int(user_id), {}).pop(str(key), None)
 
     def upsert_business_profile(self, connection_id: str, user_id: int) -> None:
         with self.lock:

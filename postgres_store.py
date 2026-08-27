@@ -150,13 +150,16 @@ class PostgresStore:
                         CREATE TABLE IF NOT EXISTS telegram_user_settings (
                             user_id BIGINT PRIMARY KEY,
                             manual_pause_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                            preferences JSONB NOT NULL DEFAULT '{}'::jsonb,
                             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                         )
                         """
                     )
+                    cursor.execute("ALTER TABLE telegram_user_settings ADD COLUMN IF NOT EXISTS preferences JSONB NOT NULL DEFAULT '{}'::jsonb")
                     cursor.execute(
                         """
-                        CREATE TABLE IF NOT EXISTS telegram_business_profiles (
+                        CREATE TABLE IF NOT EXISTS telegram_business_profiles
+ (
                             business_connection_id TEXT PRIMARY KEY,
                             user_id BIGINT NOT NULL,
                             role TEXT NOT NULL DEFAULT '',
@@ -594,6 +597,48 @@ class PostgresStore:
                     )
         except Exception as exc:
             LOGGER.warning("Postgres user pause setting write failed: %s", exc)
+
+    def get_user_setting(self, user_id: int, key: str, default: str = "") -> str:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT preferences ->> %s FROM telegram_user_settings WHERE user_id = %s LIMIT 1", (str(key), user_id))
+                    row = cursor.fetchone()
+            return str(row[0]) if row and row[0] is not None else default
+        except Exception as exc:
+            LOGGER.warning("Postgres user setting read failed: %s", exc)
+            return default
+
+    def set_user_setting(self, user_id: int, key: str, value: str) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO telegram_user_settings (user_id, preferences)
+                        VALUES (%s, jsonb_build_object(%s, %s))
+                        ON CONFLICT (user_id) DO UPDATE SET
+                            preferences = telegram_user_settings.preferences || jsonb_build_object(%s, %s),
+                            updated_at = NOW()
+                        """,
+                        (user_id, str(key), str(value), str(key), str(value)),
+                    )
+        except Exception as exc:
+            LOGGER.warning("Postgres user setting write failed: %s", exc)
+
+    def delete_user_setting(self, user_id: int, key: str) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE telegram_user_settings SET preferences = preferences - %s, updated_at = NOW() WHERE user_id = %s",
+                        (str(key), user_id),
+                    )
+        except Exception as exc:
+            LOGGER.warning("Postgres user setting delete failed: %s", exc)
 
     def upsert_business_profile(self, connection_id: str, user_id: int) -> None:
         try:

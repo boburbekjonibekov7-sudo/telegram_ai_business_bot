@@ -179,3 +179,9 @@ Media yuklash tartibi: `/admin` → `🖼 Menyu media sozlamalari` → kerakli m
 Universal menyudagi `👤 Profilim` ekranida balans va taklif/referral qatorlari ko‘rsatilmaydi. `Bepul`, `Pro` va `Biznes` tarif tugmalari o‘rniga `VIP 💎` tugmasi mavjud. VIP ekrani limitlar va imkoniyatlarni quyidagi ko‘rinishda beradi: `📩 Avto javoblar: 100 ta`, `🤖 AI avto javob (kunlik): 500 ta`, `🧠 «.ai» savol (kunlik): 100 ta`, `🖼 «.img» / «.rasm» (kunlik): 5 ta` hamda bepul tarifga qo‘shimcha VIP imkoniyatlari. VIP sotib olish tugmasi mavjud 100 Telegram Stars/30 kunlik invoice oqimidan foydalanadi.
 
 `💳 Balansni to‘ldirish` ekranida faqat `⭐ Avto to‘lov (stars)` tugmasi qoldirilgan. So‘m balans, takliflar, taklif havolasi va karta to‘lovi haqidagi elementlar bu oqimda ko‘rsatilmaydi. `⚙️ Sozlamalar` ekranidagi `🟢 Chatbotni sozlash` tugmasi Telegram `tg://settings/edit` deep-linkini ochadi. Profil, VIP, balans va Sozlamalar ekranlarining barchasida qaytish tugmasi mavjud.
+
+## VIP Tahrirlash va O‘chirishlar sozlamalari
+
+VIP userlar Sozlamalar ekranidagi `✏️ Tahrirlash` va `🗑 O‘chirishlar` bo‘limlarida bildirishnomani yoqishi yoki o‘chirishi, xabarni `Suhbatdoshga` yoki `Botga` yuborishni tanlashi, `Bildirishnoma` yoki xabar nusxasi turini belgilashi va yuborilgan/tahrirlangan yoki o‘chirilgan vaqtni ko‘rsatishni boshqarishi mumkin. Ushbu tanlovlar userga alohida bog‘lanadi va Neon’dagi `telegram_user_settings.preferences` JSONB ustunida saqlanadi; fallback storage’larda ham user bo‘yicha saqlanadi.
+
+Business customer xabari tahrirlanganda yoki o‘chirilganda bot ushbu VIP sozlamalarni o‘qiydi. Bildirishnoma `Suhbatdoshga` tanlansa Business chatga, `Botga` tanlansa Business akkaunt egasining bot chatiga yuboriladi. Tahrirlangan xabar uchun oldingi va yangi matn, o‘chirilgan xabar uchun saqlangan oxirgi matn ishlatiladi. Bepul userlarning forged callbacklari VIP tekshiruvidan o‘tmaydi va hech qanday sozlama o‘zgarmaydi.
