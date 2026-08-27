@@ -170,10 +170,23 @@ class PostgresStore:
                             chat_id TEXT PRIMARY KEY,
                             title TEXT NOT NULL DEFAULT '',
                             username TEXT NOT NULL DEFAULT '',
+                            channel_type TEXT NOT NULL DEFAULT 'public',
+                            is_required BOOLEAN NOT NULL DEFAULT FALSE,
+                            is_main BOOLEAN NOT NULL DEFAULT FALSE,
+                            invite_link TEXT NOT NULL DEFAULT '',
+                            url TEXT NOT NULL DEFAULT '',
                             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                         )
                         """
                     )
+                    for alter_statement in (
+                        "ALTER TABLE telegram_vip_channels ADD COLUMN IF NOT EXISTS channel_type TEXT NOT NULL DEFAULT 'public'",
+                        "ALTER TABLE telegram_vip_channels ADD COLUMN IF NOT EXISTS is_required BOOLEAN NOT NULL DEFAULT FALSE",
+                        "ALTER TABLE telegram_vip_channels ADD COLUMN IF NOT EXISTS is_main BOOLEAN NOT NULL DEFAULT FALSE",
+                        "ALTER TABLE telegram_vip_channels ADD COLUMN IF NOT EXISTS invite_link TEXT NOT NULL DEFAULT ''",
+                        "ALTER TABLE telegram_vip_channels ADD COLUMN IF NOT EXISTS url TEXT NOT NULL DEFAULT ''",
+                    ):
+                        cursor.execute(alter_statement)
                     cursor.execute(
                         """
                         CREATE TABLE IF NOT EXISTS telegram_admin_sessions (
@@ -620,22 +633,25 @@ class PostgresStore:
             self._ensure_schema()
             with self._connection() as connection:
                 with connection.cursor() as cursor:
-                    cursor.execute("SELECT chat_id, title, username FROM telegram_vip_channels ORDER BY created_at DESC LIMIT 500")
+                    cursor.execute("SELECT chat_id, title, username, channel_type, is_required, is_main, invite_link, url FROM telegram_vip_channels ORDER BY created_at DESC LIMIT 500")
                     rows = cursor.fetchall()
-            return [{"chat_id": str(row[0]), "title": str(row[1]), "username": str(row[2])} for row in rows]
+            return [{"chat_id": str(row[0]), "title": str(row[1]), "username": str(row[2]), "channel_type": str(row[3]), "is_required": bool(row[4]), "is_main": bool(row[5]), "invite_link": str(row[6]), "url": str(row[7])} for row in rows]
         except Exception as exc:
             LOGGER.warning("Postgres channel list failed: %s", exc)
             return []
 
-    def upsert_channel(self, chat_id: str, title: str = "", username: str = "") -> None:
+    def upsert_channel(self, chat_id: str, title: str = "", username: str = "", channel_type: str = "public", is_required: bool = False, is_main: bool = False, invite_link: str = "", url: str = "") -> None:
         try:
             self._ensure_schema()
             with self._connection() as connection:
                 with connection.cursor() as cursor:
                     cursor.execute("""
-                        INSERT INTO telegram_vip_channels (chat_id, title, username) VALUES (%s, %s, %s)
-                        ON CONFLICT (chat_id) DO UPDATE SET title = EXCLUDED.title, username = EXCLUDED.username
-                    """, (str(chat_id), title, username))
+                        INSERT INTO telegram_vip_channels (chat_id, title, username, channel_type, is_required, is_main, invite_link, url)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (chat_id) DO UPDATE SET title = EXCLUDED.title, username = EXCLUDED.username,
+                            channel_type = EXCLUDED.channel_type, is_required = EXCLUDED.is_required,
+                            is_main = EXCLUDED.is_main, invite_link = EXCLUDED.invite_link, url = EXCLUDED.url
+                    """, (str(chat_id), title, username, channel_type, bool(is_required), bool(is_main), invite_link, url))
         except Exception as exc:
             LOGGER.warning("Postgres channel write failed: %s", exc)
 

@@ -161,9 +161,13 @@ class MemoryStore:
         with self.lock:
             return [dict(channel) for channel in self.channels.values()]
 
-    def upsert_channel(self, chat_id: str, title: str = "", username: str = "") -> None:
+    def upsert_channel(self, chat_id: str, title: str = "", username: str = "", channel_type: str = "public", is_required: bool = False, is_main: bool = False, invite_link: str = "", url: str = "") -> None:
         with self.lock:
-            self.channels[str(chat_id)] = {"chat_id": str(chat_id), "title": title, "username": username}
+            self.channels[str(chat_id)] = {
+                "chat_id": str(chat_id), "title": title, "username": username,
+                "channel_type": channel_type, "is_required": bool(is_required),
+                "is_main": bool(is_main), "invite_link": invite_link, "url": url,
+            }
 
     def delete_channel(self, chat_id: str) -> None:
         with self.lock:
@@ -174,6 +178,8 @@ class MemoryStore:
             users = set(self.started_users)
             if target == "vip":
                 users &= set(self.premium_access)
+            elif target == "normal":
+                users -= set(self.premium_access)
             return sorted(users)
 
     def get_admin_session(self, user_id: int) -> dict[str, object] | None:

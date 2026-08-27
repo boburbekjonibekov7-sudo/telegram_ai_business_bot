@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
 import signal
@@ -325,7 +326,8 @@ class BusinessAiBot:
                 return
 
         text = self._message_text(message)
-        if not text:
+        owner_session = self._owner_session(user_id) if not is_business and user_id == OWNER_ADMIN_ID else None
+        if not text and not (owner_session and owner_session.get("state") == "broadcast_forward"):
             return
         if not is_business and await self._handle_admin_command(message, text, chat_id):
             return
@@ -467,8 +469,22 @@ class BusinessAiBot:
             await self._edit_owner_screen(chat_id, message_id, self._owner_channels_text(), self._owner_channels_keyboard())
             return
         if data == "channel:add":
-            self._set_owner_session(user_id, "channel_add")
-            await self._edit_owner_screen(chat_id, message_id, "➕ Kanal qo‘shish\n\nKanal username’i yoki chat ID sini yuboring.\nBot kanalga xabar yuborishi uchun admin huquqiga ega bo‘lishi kerak.", self._owner_channels_keyboard())
+            await self._edit_owner_screen(chat_id, message_id, "➕ Kanal qo‘shish\n\nKanal turini tanlang:", self._owner_channel_type_keyboard())
+            return
+        if data.startswith("channel:type:"):
+            channel_type = data.split(":", 2)[2]
+            if channel_type == "private":
+                self._set_owner_session(user_id, "channel_add_private_forward")
+                text = "🔐 Private/so‘rovli kanal\n\nKanal yoki guruhdan bitta xabarni shu chatga forward qiling. Bot u orqali chatni aniqlaydi."
+            elif channel_type == "url":
+                self._set_owner_session(user_id, "channel_add_url")
+                text = "🌐 Oddiy URL kanal\n\nKanal yoki sahifa havolasini yuboring."
+            else:
+                state = "channel_add_main" if channel_type == "main" else ("channel_add_required" if channel_type == "required" else "channel_add_public")
+                self._set_owner_session(user_id, state)
+                label = {"main": "asosiy", "required": "majburiy obuna", "public": "ommaviy"}.get(channel_type, channel_type)
+                text = f"📢 {label.title()} kanal\n\nKanal username’i yoki chat ID sini yuboring. Bot kanalga administrator qilib qo‘shilgan bo‘lishi kerak."
+            await self._edit_owner_screen(chat_id, message_id, text, self._owner_channels_keyboard())
             return
         if data == "channel:delete":
             self._set_owner_session(user_id, "channel_delete")
@@ -477,11 +493,58 @@ class BusinessAiBot:
         if data == "owner:broadcast":
             await self._edit_owner_screen(chat_id, message_id, "✉️ Xabar yuborish\n\nKimga yuborishni tanlang:", self._owner_broadcast_keyboard())
             return
-        if data in {"broadcast:all", "broadcast:vip", "broadcast:channels"}:
+        if data == "broadcast:one":
+            self._set_owner_session(user_id, "broadcast_one_id")
+            await self._edit_owner_screen(chat_id, message_id, "👤 Bitta userga\n\nTelegram user ID sini yuboring:", self._owner_broadcast_keyboard())
+            return
+        if data in {"broadcast:all", "broadcast:vip", "broadcast:normal"}:
             target = data.split(":", 1)[1]
-            self._set_owner_session(user_id, "broadcast_text", {"target": target})
-            target_label = {"all": "barcha userlarga", "vip": "VIP userlarga", "channels": "saqlangan kanallarga"}[target]
-            await self._edit_owner_screen(chat_id, message_id, f"✉️ Xabar yuborish\n\n{target_label} yuboriladigan matnni yuboring.\n\nBekor qilish: /cancel", self._owner_broadcast_keyboard())
+            target_label = {"all": "Barcha userlar", "vip": "VIP userlar", "normal": "Oddiy userlar"}[target]
+            await self._edit_owner_screen(chat_id, message_id, f"✉️ {target_label}\n\nYuborish usulini tanlang:", self._owner_broadcast_type_keyboard(target))
+            return
+        if data == "broadcast:channels":
+            self._set_owner_session(user_id, "broadcast_channel_select", {"selected": []})
+            await self._edit_owner_screen(chat_id, message_id, "📢 Kanal tanlang:\n\nXabar yuboriladigan kanallarni belgilang:", self._owner_broadcast_channel_select_keyboard([]))
+            return
+        if data.startswith("broadcast:toggle:"):
+            channel_id = data.split(":", 2)[2]
+            session = self._owner_session(user_id) or {}
+            session_data = session.get("data") if isinstance(session.get("data"), dict) else {}
+            selected = [str(item) for item in session_data.get("selected", [])]
+            if channel_id in selected:
+                selected.remove(channel_id)
+            else:
+                selected.append(channel_id)
+            self._set_owner_session(user_id, "broadcast_channel_select", {"selected": selected})
+            await self._edit_owner_screen(chat_id, message_id, "📢 Kanal tanlang:\n\nXabar yuboriladigan kanallarni belgilang:", self._owner_broadcast_channel_select_keyboard(selected))
+            return
+        if data == "broadcast:send_selected":
+            session = self._owner_session(user_id) or {}
+            session_data = session.get("data") if isinstance(session.get("data"), dict) else {}
+            selected = [str(item) for item in session_data.get("selected", [])]
+            if not selected:
+                await self.telegram.answer_callback_query(callback_id, "Avval kamida bitta kanal tanlang.", True)
+                return
+            await self._edit_owner_screen(chat_id, message_id, "📢 Tanlangan kanallarga\n\nYuborish usulini tanlang:", self._owner_broadcast_type_keyboard("channels", selected))
+            return
+        if data.startswith("broadcast:type:"):
+            parts = data.split(":", 3)
+            broadcast_type = parts[2]
+            target = parts[3]
+            extra = {}
+            if target.startswith("channels|"):
+                target, raw_ids = target.split("|", 1)
+                extra["chat_ids"] = [item for item in raw_ids.split(",") if item]
+            if target == "one":
+                session = self._owner_session(user_id) or {}
+                session_data = session.get("data") if isinstance(session.get("data"), dict) else {}
+                extra["user_id"] = session_data.get("user_id")
+            if broadcast_type == "text":
+                self._set_owner_session(user_id, "broadcast_text", {"target": target, **extra})
+                await self._edit_owner_screen(chat_id, message_id, "✍️ Yuboriladigan matnni yuboring.\n\nBekor qilish: /cancel", self._owner_broadcast_type_keyboard(target, extra.get("chat_ids", [])))
+            else:
+                self._set_owner_session(user_id, "broadcast_forward", {"target": target, **extra})
+                await self._edit_owner_screen(chat_id, message_id, "↗️ Forward qilinadigan xabarni shu chatga yuboring yoki forward qiling.\n\nBekor qilish: /cancel", self._owner_broadcast_type_keyboard(target, extra.get("chat_ids", [])))
             return
         if data == "menu:home":
             await self.telegram.edit_message_text(chat_id, message_id, START_MENU_TEXT, self._main_menu_keyboard(self._has_premium(user_id)))
@@ -925,19 +988,56 @@ class BusinessAiBot:
             self._clear_owner_session(user_id)
             await self._send_chunks(chat_id, f"✅ {target_id} userning VIP accessi olib tashlandi.", None, reply_to, self._owner_vip_keyboard())
             return True
-        if state == "channel_add":
+        if state in {"channel_add_public", "channel_add_main", "channel_add_required"}:
             try:
+                channel_type = {"channel_add_public": "public", "channel_add_main": "main", "channel_add_required": "required"}[state]
                 chat = await self.telegram.get_chat(text)
                 channel_id = str(chat.get("id"))
                 if channel_id == "None":
                     raise TelegramApiError("getChat", "chat ID topilmadi")
                 saver = getattr(self.store, "upsert_channel", None)
                 if callable(saver):
-                    saver(channel_id, str(chat.get("title") or chat.get("first_name") or ""), str(chat.get("username") or ""))
+                    saver(channel_id, str(chat.get("title") or chat.get("first_name") or ""), str(chat.get("username") or ""), channel_type, channel_type == "required", channel_type == "main")
                 self._clear_owner_session(user_id)
                 await self._send_chunks(chat_id, "✅ Kanal saqlandi. Bot kanalga xabar yuborishi uchun kanalda admin huquqi bo‘lishi kerak.", None, reply_to, self._owner_channels_keyboard())
             except (TelegramApiError, ValueError) as exc:
                 await self._send_chunks(chat_id, f"❌ Kanal topilmadi yoki saqlanmadi: {exc}", None, reply_to, self._owner_channels_keyboard())
+            return True
+        if state == "channel_add_url":
+            value = text.strip()
+            if not (value.startswith("http://") or value.startswith("https://")):
+                await self._send_chunks(chat_id, "❌ URL http:// yoki https:// bilan boshlanishi kerak.", None, reply_to, self._owner_channels_keyboard())
+                return True
+            channel_id = "url:" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:24]
+            saver = getattr(self.store, "upsert_channel", None)
+            if callable(saver):
+                saver(channel_id, value, "", "url", True, False, "", value)
+            self._clear_owner_session(user_id)
+            await self._send_chunks(chat_id, "✅ Oddiy URL saqlandi.", None, reply_to, self._owner_channels_keyboard())
+            return True
+        if state == "channel_add_private_forward":
+            origin = message.get("forward_origin") or {}
+            forwarded_chat = message.get("forward_from_chat") or (origin.get("chat") if isinstance(origin, dict) else {}) or {}
+            if not isinstance(forwarded_chat, dict) or not forwarded_chat.get("id"):
+                await self._send_chunks(chat_id, "❌ Kanal yoki guruhdan forward qilingan xabar yuboring.", None, reply_to, self._owner_channels_keyboard())
+                return True
+            self._set_owner_session(user_id, "channel_add_private_link", {
+                "chat_id": str(forwarded_chat.get("id")),
+                "title": str(forwarded_chat.get("title") or ""),
+                "username": str(forwarded_chat.get("username") or ""),
+            })
+            await self._send_chunks(chat_id, "🔐 Endi shu private kanalning invite linkini yuboring:\nhttps://t.me/+... yoki https://t.me/joinchat/...", None, reply_to, self._owner_channels_keyboard())
+            return True
+        if state == "channel_add_private_link":
+            value = text.strip()
+            if not (value.startswith("https://t.me/+") or value.startswith("https://t.me/joinchat/")):
+                await self._send_chunks(chat_id, "❌ Private kanal invite linki noto‘g‘ri.", None, reply_to, self._owner_channels_keyboard())
+                return True
+            saver = getattr(self.store, "upsert_channel", None)
+            if callable(saver):
+                saver(str(data.get("chat_id")), str(data.get("title") or ""), str(data.get("username") or ""), "private", True, False, value, "")
+            self._clear_owner_session(user_id)
+            await self._send_chunks(chat_id, "✅ Private kanal saqlandi.", None, reply_to, self._owner_channels_keyboard())
             return True
         if state == "channel_delete":
             deleter = getattr(self.store, "delete_channel", None)
@@ -946,17 +1046,37 @@ class BusinessAiBot:
             self._clear_owner_session(user_id)
             await self._send_chunks(chat_id, "✅ Kanal ro‘yxatdan o‘chirildi.", None, reply_to, self._owner_channels_keyboard())
             return True
+        if state == "broadcast_one_id":
+            try:
+                target_id = int(text)
+            except ValueError:
+                await self._send_chunks(chat_id, "❌ Telegram user ID faqat raqam bo‘lishi kerak.", None, reply_to)
+                return True
+            self._set_owner_session(user_id, "broadcast_type", {"target": "one", "user_id": target_id})
+            await self._send_chunks(chat_id, "📨 Yuborish usulini tanlang.", None, reply_to, self._owner_broadcast_type_keyboard("one"))
+            return True
         if state == "broadcast_text":
             target = str(data.get("target") or "all")
+            recipients_override = data.get("chat_ids") if target == "channels" else ([int(data.get("user_id"))] if target == "one" and data.get("user_id") else None)
             self._clear_owner_session(user_id)
-            sent, failed, total = await self._run_owner_broadcast(target, text)
+            sent, failed, total = await self._run_owner_broadcast(target, text, recipients_override)
             await self._send_chunks(chat_id, f"📤 Xabar yuborish tugadi.\n\nJami: {total}\n✅ Yuborildi: {sent}\n❌ Xato: {failed}", None, reply_to, self._owner_broadcast_keyboard())
+            return True
+        if state == "broadcast_forward":
+            target = str(data.get("target") or "all")
+            recipients_override = data.get("chat_ids") if target == "channels" else ([int(data.get("user_id"))] if target == "one" and data.get("user_id") else None)
+            source_message_id = message.get("message_id")
+            self._clear_owner_session(user_id)
+            sent, failed, total = await self._run_owner_forward(target, chat_id, source_message_id, recipients_override)
+            await self._send_chunks(chat_id, f"📤 Forward yuborish tugadi.\n\nJami: {total}\n✅ Yuborildi: {sent}\n❌ Xato: {failed}", None, reply_to, self._owner_broadcast_keyboard())
             return True
         self._clear_owner_session(user_id)
         return False
 
-    async def _run_owner_broadcast(self, target: str, text: str) -> tuple[int, int, int]:
-        if target == "channels":
+    async def _run_owner_broadcast(self, target: str, text: str, recipients_override: list[object] | None = None) -> tuple[int, int, int]:
+        if recipients_override is not None:
+            recipients = [str(item) if target == "channels" else int(item) for item in recipients_override]
+        elif target == "channels":
             getter = getattr(self.store, "list_channels", None)
             recipients = [str(row.get("chat_id")) for row in (getter() if callable(getter) else []) if row.get("chat_id")]
         else:
@@ -973,11 +1093,43 @@ class BusinessAiBot:
                 LOGGER.warning("Owner broadcast yuborilmadi recipient=%s: %s", recipient, exc)
         return sent, failed, len(recipients)
 
+    async def _run_owner_forward(self, target: str, source_chat_id: int, source_message_id: int | None, recipients_override: list[object] | None = None) -> tuple[int, int, int]:
+        if not isinstance(source_message_id, int):
+            return 0, 1, 1
+        if recipients_override is not None:
+            recipients = [str(item) if target == "channels" else int(item) for item in recipients_override]
+        elif target == "channels":
+            getter = getattr(self.store, "list_channels", None)
+            recipients = [str(row.get("chat_id")) for row in (getter() if callable(getter) else []) if row.get("chat_id")]
+        else:
+            getter = getattr(self.store, "broadcast_user_ids", None)
+            recipients = [int(user_id) for user_id in (getter(target) if callable(getter) else [])]
+        sent = 0
+        failed = 0
+        for recipient in recipients[:5000]:
+            try:
+                await self.telegram.forward_message(recipient, source_chat_id, source_message_id)
+                sent += 1
+            except TelegramApiError as exc:
+                failed += 1
+                LOGGER.warning("Owner forward yuborilmadi recipient=%s: %s", recipient, exc)
+        return sent, failed, len(recipients)
+
     def _owner_vip_keyboard(self) -> dict[str, Any]:
         return {"inline_keyboard": [
             [{"text": "➕ VIP berish", "callback_data": "vip:grant"}, {"text": "❌ VIP olish", "callback_data": "vip:revoke"}],
             [{"text": "📋 VIP userlar", "callback_data": "vip:list"}],
             [{"text": "🔙 Admin panel", "callback_data": "admin:home"}],
+        ]}
+
+    def _owner_channel_type_keyboard(self) -> dict[str, Any]:
+        return {"inline_keyboard": [
+            [{"text": "📢 Ommaviy kanal", "callback_data": "channel:type:public"}],
+            [{"text": "⭐ Asosiy kanal", "callback_data": "channel:type:main"}],
+            [{"text": "🔐 Majburiy obuna kanali", "callback_data": "channel:type:required"}],
+            [{"text": "🔒 Private/so‘rovli kanal", "callback_data": "channel:type:private"}],
+            [{"text": "🌐 Oddiy URL", "callback_data": "channel:type:url"}],
+            [{"text": "🔙 Kanal boshqaruvi", "callback_data": "owner:channels"}],
         ]}
 
     def _owner_channels_keyboard(self) -> dict[str, Any]:
@@ -990,11 +1142,38 @@ class BusinessAiBot:
 
     def _owner_broadcast_keyboard(self) -> dict[str, Any]:
         return {"inline_keyboard": [
+            [{"text": "👤 Bitta userga", "callback_data": "broadcast:one"}],
             [{"text": "👥 Barcha userlarga", "callback_data": "broadcast:all"}],
             [{"text": "💎 VIP userlarga", "callback_data": "broadcast:vip"}],
-            [{"text": "📢 Saqlangan kanallarga", "callback_data": "broadcast:channels"}],
+            [{"text": "⭐ Oddiy userlarga", "callback_data": "broadcast:normal"}],
+            [{"text": "📢 Tanlangan kanallarga", "callback_data": "broadcast:channels"}],
             [{"text": "🔙 Admin panel", "callback_data": "admin:home"}],
         ]}
+
+    def _owner_broadcast_type_keyboard(self, target: str, chat_ids: list[str] | None = None) -> dict[str, Any]:
+        encoded_target = target
+        if target == "channels":
+            encoded_target = "channels|" + ",".join(chat_ids or [])
+        return {"inline_keyboard": [
+            [{"text": "✍️ Matn yuborish", "callback_data": f"broadcast:type:text:{encoded_target}"}],
+            [{"text": "↗️ Forward xabar yuborish", "callback_data": f"broadcast:type:forward:{encoded_target}"}],
+            [{"text": "🔙 Xabar yuborish", "callback_data": "owner:broadcast"}],
+        ]}
+
+    def _owner_broadcast_channel_select_keyboard(self, selected: list[str]) -> dict[str, Any]:
+        getter = getattr(self.store, "list_channels", None)
+        channels = getter() if callable(getter) else []
+        rows: list[list[dict[str, str]]] = []
+        for row in channels[:50]:
+            channel_id = str(row.get("chat_id") or "")
+            if not channel_id or str(row.get("channel_type") or "") == "url":
+                continue
+            mark = "✅" if channel_id in selected else "☑️"
+            label = row.get("username") or row.get("title") or channel_id
+            rows.append([{"text": f"{mark} {label}", "callback_data": f"broadcast:toggle:{channel_id}"}])
+        rows.append([{ "text": "🚀 Tanlanganlarga yuborish", "callback_data": "broadcast:send_selected"}])
+        rows.append([{ "text": "🔙 Xabar yuborish", "callback_data": "owner:broadcast"}])
+        return {"inline_keyboard": rows}
 
     async def _edit_owner_screen(self, chat_id: int, message_id: int, text: str, markup: dict[str, Any]) -> None:
         try:
@@ -1019,9 +1198,12 @@ class BusinessAiBot:
         if not channels:
             return "📢 Kanal boshqaruvi\n\nSaqlangan kanallar yo‘q."
         lines = ["📢 Kanal boshqaruvi\n"]
+        type_labels = {"public": "Ommaviy", "main": "Asosiy", "required": "Majburiy", "private": "Private", "url": "URL"}
         for row in channels[:100]:
             label = row.get("username") or row.get("title") or row.get("chat_id")
-            lines.append(f"• {label} — {row.get('chat_id')}")
+            kind = type_labels.get(str(row.get("channel_type") or "public"), str(row.get("channel_type") or "public"))
+            extra = f" — {row.get('invite_link')}" if row.get("invite_link") else ""
+            lines.append(f"• [{kind}] {label} — {row.get('chat_id')}{extra}")
         return "\n".join(lines)
 
     def stop(self) -> None:

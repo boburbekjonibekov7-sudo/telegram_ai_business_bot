@@ -207,10 +207,15 @@ class AdminPanelAndApkTests(unittest.TestCase):
             self.callback_answers = []
             self.invoice_links = []
             self.pre_checkout_answers = []
+            self.forwarded = []
 
         async def send_message(self, **kwargs):
             self.sent.append(kwargs)
             return {"message_id": 10}
+
+        async def forward_message(self, chat_id, from_chat_id, message_id):
+            self.forwarded.append((chat_id, from_chat_id, message_id))
+            return {"message_id": 11}
 
         async def send_typing(self, chat_id, business_connection_id=None):
             return None
@@ -337,12 +342,38 @@ class AdminPanelAndApkTests(unittest.TestCase):
         bot.store.grant_premium(1247, time.time() + 86400, "test")
         asyncio.run(bot.process_update({"callback_query": {"id": "channel-menu", "from": owner, "data": "owner:channels", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
         asyncio.run(bot.process_update({"callback_query": {"id": "channel-add", "from": owner, "data": "channel:add", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "channel-public", "from": owner, "data": "channel:type:public", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
         asyncio.run(bot.process_update({"message": {"message_id": 11, "chat": {"id": 8645314130}, "from": owner, "text": "@test_channel"}}))
         self.assertEqual(bot.store.list_channels()[0]["chat_id"], "-100123")
         asyncio.run(bot.process_update({"callback_query": {"id": "broadcast-menu", "from": owner, "data": "owner:broadcast", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
         asyncio.run(bot.process_update({"callback_query": {"id": "broadcast-vip", "from": owner, "data": "broadcast:vip", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "broadcast-vip-text", "from": owner, "data": "broadcast:type:text:vip", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
         asyncio.run(bot.process_update({"message": {"message_id": 12, "chat": {"id": 8645314130}, "from": owner, "text": "VIP xabar"}}))
         self.assertTrue(any(item.get("chat_id") == 1247 and item.get("text") == "VIP xabar" for item in bot.telegram.sent))
+
+    def test_owner_can_broadcast_to_one_user_and_forward(self) -> None:
+        bot = self._bot()
+        owner = {"id": 8645314130}
+        asyncio.run(bot.process_update({"callback_query": {"id": "one-menu", "from": owner, "data": "owner:broadcast", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "one-target", "from": owner, "data": "broadcast:one", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 11, "chat": {"id": 8645314130}, "from": owner, "text": "1248"}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "one-forward", "from": owner, "data": "broadcast:type:forward:one", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 12, "chat": {"id": 8645314130}, "from": owner, "text": "Forward source"}}))
+        self.assertEqual(bot.telegram.forwarded[-1], (1248, 8645314130, 12))
+
+    def test_owner_can_broadcast_to_selected_channels(self) -> None:
+        bot = self._bot()
+        owner = {"id": 8645314130}
+        bot.store.upsert_channel("-100124", "Channel A", "channel_a")
+        bot.store.upsert_channel("-100125", "Channel B", "channel_b")
+        asyncio.run(bot.process_update({"callback_query": {"id": "channels-menu", "from": owner, "data": "owner:broadcast", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "channels-target", "from": owner, "data": "broadcast:channels", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "channel-select", "from": owner, "data": "broadcast:toggle:-100124", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "channel-send", "from": owner, "data": "broadcast:send_selected", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "channel-text", "from": owner, "data": "broadcast:type:text:channels|-100124", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 11, "chat": {"id": 8645314130}, "from": owner, "text": "Kanal xabari"}}))
+        self.assertTrue(any(item.get("chat_id") == "-100124" and item.get("text") == "Kanal xabari" for item in bot.telegram.sent))
+        self.assertFalse(any(item.get("chat_id") == "-100125" and item.get("text") == "Kanal xabari" for item in bot.telegram.sent))
 
     def test_premium_business_message_uses_its_customer_chat(self) -> None:
         bot = self._bot()

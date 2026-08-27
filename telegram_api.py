@@ -207,6 +207,19 @@ class TelegramBotApi:
             payload["reply_markup"] = reply_markup
         return await self.call("editMessageText", payload)
 
+    async def forward_message(
+        self,
+        chat_id: int | str,
+        from_chat_id: int | str,
+        message_id: int,
+    ) -> dict[str, Any]:
+        result = await self.call("forwardMessage", {
+            "chat_id": chat_id,
+            "from_chat_id": from_chat_id,
+            "message_id": message_id,
+        })
+        return result if isinstance(result, dict) else {}
+
     async def send_message(
         self,
         chat_id: int | str,
