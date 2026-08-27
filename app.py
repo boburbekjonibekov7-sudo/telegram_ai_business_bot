@@ -559,9 +559,10 @@ class BusinessAiBot:
                     business_connection_id,
                 )
                 return
-            if self._is_apk_message(message) and user_id != business_owner_id:
-                await self._delete_business_apk(message, business_connection_id)
-                return
+            if self._is_apk_message(message) and user_id != business_owner_id and isinstance(business_owner_id, int):
+                if self._user_setting(business_owner_id, "settings_apk_delete_enabled", "1") == "1":
+                    await self._delete_business_apk(message, business_connection_id)
+                    return
             if isinstance(business_owner_id, int) and user_id != business_owner_id:
                 self._remember_business_message(business_owner_id, message)
 
@@ -629,7 +630,8 @@ class BusinessAiBot:
             history.append({"role": "user", "content": text})
             try:
                 try:
-                    await self.telegram.send_typing(chat_id, business_connection_id)
+                    if not is_business or not isinstance(business_owner_id, int) or self._user_setting(business_owner_id, "settings_typing_enabled", "1") == "1":
+                        await self.telegram.send_typing(chat_id, business_connection_id)
                 except TelegramApiError as exc:
                     # Typing is cosmetic; a Telegram limitation must not block the AI reply.
                     LOGGER.warning("Typing action yuborilmadi, AI javobi davom etadi: %s", exc)
@@ -654,6 +656,13 @@ class BusinessAiBot:
                 business_connection_id,
                 message.get("message_id"),
             )
+            if is_business and isinstance(business_owner_id, int) and self._user_setting(business_owner_id, "settings_read_enabled", "1") == "1":
+                read_method = getattr(self.telegram, "read_business_message", None)
+                if callable(read_method) and isinstance(message.get("message_id"), int):
+                    try:
+                        await read_method(business_connection_id, message["message_id"])
+                    except TelegramApiError as exc:
+                        LOGGER.warning("Business xabarini o‘qilgan deb belgilab bo‘lmadi: %s", exc)
 
     def _mark_owner_activity(self, key: str) -> None:
         self.store.mark_owner_activity(key)
@@ -700,7 +709,12 @@ class BusinessAiBot:
         if data == "admin:stats" and not is_owner:
             await self.telegram.answer_callback_query(callback_id, "Bu bo‘lim faqat owner uchun.", True)
             return
-        await self.telegram.answer_callback_query(callback_id)
+        toggle_callbacks = {
+            "settings:edit:toggle", "settings:edit:time", "settings:delete:toggle", "settings:delete:time",
+            "settings:apk", "settings:typing", "settings:read", "settings:currency",
+        }
+        if data not in toggle_callbacks:
+            await self.telegram.answer_callback_query(callback_id)
         if not isinstance(chat_id, int) or not isinstance(message_id, int):
             return
         if data == "owner:vip":
@@ -872,7 +886,13 @@ class BusinessAiBot:
                 key = f"{kind}_notify_enabled" if field == "toggle" else f"{kind}_notify_timestamp"
                 default = "0" if (kind == "edit" or field == "time") else "1"
                 current = self._user_setting(user_id, key, default) == "1"
-                self._set_user_setting(user_id, key, "0" if current else "1")
+                enabled = not current
+                self._set_user_setting(user_id, key, "1" if enabled else "0")
+                if field == "toggle":
+                    label = "Tahrirlangan xabarlarni bildirish" if kind == "edit" else "O‘chirilgan xabarlarni bildirish"
+                else:
+                    label = "Yuborilgan va tahrirlangan vaqtni ko‘rsatish" if kind == "edit" else "Yuborilgan va o‘chirilgan vaqtni ko‘rsatish"
+                await self.telegram.answer_callback_query(callback_id, f"{label} {'yoqildi 🔔' if enabled else 'o‘chirildi 🔕'}!", True)
                 await self._render_media_or_text(chat_id, self._settings_feature_text(kind, user_id), self._settings_feature_keyboard(kind, user_id), "start", message_id)
                 return
             if len(parts) == 4:
@@ -888,8 +908,19 @@ class BusinessAiBot:
         if data == "settings:commands":
             await self._render_media_or_text(chat_id, "📗 Buyruqlar ruxsati\n\nQaysi buyruqni kim ishlatishini Telegram Business sozlamalaridan belgilaysiz.", self._settings_back_keyboard(), "start", message_id)
             return
-        if data in {"settings:edit", "settings:deletions", "settings:apk", "settings:typing", "settings:read", "settings:currency"}:
-            await self._render_media_or_text(chat_id, "⚙️ Bu sozlama Telegram Business ulanishi orqali boshqariladi.\n\n`🤝 Chatbotni sozlash` tugmasini bosing.", self._settings_back_keyboard(), "start", message_id)
+        toggle_settings = {
+            "settings:apk": ("settings_apk_delete_enabled", "1", "APK o‘chirish"),
+            "settings:typing": ("settings_typing_enabled", "1", "Yozmoqda"),
+            "settings:read": ("settings_read_enabled", "1", "Avto javob berganda xabarni o‘qish"),
+            "settings:currency": ("settings_currency_enabled", "1", "Valyuta miqdorini hisoblash"),
+        }
+        if data in toggle_settings:
+            key, default, label = toggle_settings[data]
+            current = self._user_setting(user_id, key, default) == "1"
+            enabled = not current
+            self._set_user_setting(user_id, key, "1" if enabled else "0")
+            await self.telegram.answer_callback_query(callback_id, f"{label} {'yoqildi 🔔' if enabled else 'o‘chirildi 🔕'}!", True)
+            await self._render_media_or_text(chat_id, self._settings_text(user_id), self._settings_keyboard(user_id), "start", message_id)
             return
         if data in {"settings:pro", "settings:business"}:
             title = "🧙 Pro funksiyalar" if data == "settings:pro" else "😎 Biznes funksiyalar"
@@ -1101,9 +1132,9 @@ Qisqa qo‘llanma (ochish uchun bosing):
         return {"inline_keyboard": [
             [{"text": "🤝 Chatbotni sozlash", "url": "tg://settings/edit"}],
             [{"text": f"✏️ Tahrirlash: {'on' if edit_state else 'off'}", "callback_data": "settings:edit"}, {"text": f"🗑 O‘chirishlar: {'on' if delete_state else 'off'}", "callback_data": "settings:delete"}],
-            [{"text": "🤖 APK o‘chirish: on", "callback_data": "settings:apk"}, {"text": "••• Yozmoqda: on", "callback_data": "settings:typing"}],
-            [{"text": "✉️ Avto javob berganda xabarni o‘qish: on", "callback_data": "settings:read"}],
-            [{"text": "💱 Valyuta miqdor hisoblash: on", "callback_data": "settings:currency"}],
+            [{"text": f"🤖 APK o‘chirish: {'on' if self._user_setting(uid, 'settings_apk_delete_enabled', '1') == '1' else 'off'}", "callback_data": "settings:apk"}, {"text": f"••• Yozmoqda: {'on' if self._user_setting(uid, 'settings_typing_enabled', '1') == '1' else 'off'}", "callback_data": "settings:typing"}],
+            [{"text": f"✉️ Avto javob berganda xabarni o‘qish: {'on' if self._user_setting(uid, 'settings_read_enabled', '1') == '1' else 'off'}", "callback_data": "settings:read"}],
+            [{"text": f"💱 Valyuta miqdorini hisoblash: {'on' if self._user_setting(uid, 'settings_currency_enabled', '1') == '1' else 'off'}", "callback_data": "settings:currency"}],
             [{"text": "📗 Buyruqlarni kim ishlata oladi", "callback_data": "settings:commands"}],
             [{"text": "VIP 💎 obuna", "callback_data": "profile:vip"}],
             [{"text": "🔙 Orqaga", "callback_data": "menu:home"}],

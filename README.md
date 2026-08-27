@@ -180,8 +180,8 @@ Universal menyudagi `👤 Profilim` ekranida balans va taklif/referral qatorlari
 
 `💳 Balansni to‘ldirish` ekranida faqat `⭐ Avto to‘lov (stars)` tugmasi qoldirilgan. So‘m balans, takliflar, taklif havolasi va karta to‘lovi haqidagi elementlar bu oqimda ko‘rsatilmaydi. `⚙️ Sozlamalar` ekranidagi `🟢 Chatbotni sozlash` tugmasi Telegram `tg://settings/edit` deep-linkini ochadi. Profil, VIP, balans va Sozlamalar ekranlarining barchasida qaytish tugmasi mavjud.
 
-## VIP Tahrirlash va O‘chirishlar sozlamalari
+## Tahrirlash va O‘chirishlar sozlamalari
 
 Oddiy userlar, VIP userlar va owner Sozlamalar ekranidagi `✏️ Tahrirlash` va `🗑 O‘chirishlar` bo‘limlarida bildirishnomani yoqishi yoki o‘chirishi, xabarni `Suhbatdoshga` yoki `Botga` yuborishni tanlashi, `Bildirishnoma` yoki xabar nusxasi turini belgilashi va yuborilgan/tahrirlangan yoki o‘chirilgan vaqtni ko‘rsatishni boshqarishi mumkin. Ushbu tanlovlar userga alohida bog‘lanadi va Neon’dagi `telegram_user_settings.preferences` JSONB ustunida saqlanadi; fallback storage’larda ham user bo‘yicha saqlanadi.
 
-Business customer xabari tahrirlanganda yoki o‘chirilganda bot ushbu VIP sozlamalarni o‘qiydi. Bildirishnoma `Suhbatdoshga` tanlansa Business chatga, `Botga` tanlansa Business akkaunt egasining bot chatiga yuboriladi. Tahrirlangan xabar uchun oldingi va yangi matn, o‘chirilgan xabar uchun saqlangan oxirgi matn ishlatiladi. Barcha userlarning settings callbacklari ishlaydi va sozlamalar userlar bo‘yicha alohida saqlanadi.
+Business customer xabari tahrirlanganda yoki o‘chirilganda bot ushbu settings sozlamalarini o‘qiydi. Bildirishnoma `Suhbatdoshga` tanlansa Business chatga, `Botga` tanlansa Business akkaunt egasining bot chatiga yuboriladi. Tahrirlangan xabar uchun oldingi va yangi matn, o‘chirilgan xabar uchun saqlangan oxirgi matn ishlatiladi. Barcha userlarning settings callbacklari ishlaydi va sozlamalar userlar bo‘yicha alohida saqlanadi.

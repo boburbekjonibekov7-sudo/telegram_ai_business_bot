@@ -78,6 +78,12 @@ class TelegramBotApi:
             payload["business_connection_id"] = business_connection_id
         return await self.call("sendChatAction", payload)
 
+    async def read_business_message(self, business_connection_id: str, message_id: int) -> Any:
+        return await self.call(
+            "readBusinessMessage",
+            {"business_connection_id": business_connection_id, "message_id": message_id},
+        )
+
     async def get_chat(self, chat_id: int | str) -> dict[str, Any]:
         result = await self.call("getChat", {"chat_id": chat_id})
         if not isinstance(result, dict):

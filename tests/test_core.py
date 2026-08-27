@@ -221,6 +221,8 @@ class AdminPanelAndApkTests(unittest.TestCase):
             self.forwarded = []
             self.photos = []
             self.videos = []
+            self.typing_calls = []
+            self.read_business_calls = []
 
         async def send_message(self, **kwargs):
             self.sent.append(kwargs)
@@ -247,7 +249,12 @@ class AdminPanelAndApkTests(unittest.TestCase):
             return {"message_id": 11}
 
         async def send_typing(self, chat_id, business_connection_id=None):
+            self.typing_calls.append((chat_id, business_connection_id))
             return None
+
+        async def read_business_message(self, business_connection_id, message_id):
+            self.read_business_calls.append((business_connection_id, message_id))
+            return True
 
         async def create_invoice_link(self, title, description, payload, amount, subscription_period):
             self.invoice_links.append({"title": title, "description": description, "payload": payload, "amount": amount, "subscription_period": subscription_period})
@@ -655,6 +662,28 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertIn("Profil", bot.telegram.sent[-1]["text"])
         self.assertIn("VIP 💎", [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row])
 
+    def test_all_settings_toggles_switch_and_show_confirmation(self) -> None:
+        bot = self._bot()
+        user = {"id": 1266}
+        base = {"chat": {"id": 1266}, "message_id": 10}
+        for callback_id, data, label, key in (
+            ("apk-toggle", "settings:apk", "APK o‘chirish", "settings_apk_delete_enabled"),
+            ("typing-toggle", "settings:typing", "Yozmoqda", "settings_typing_enabled"),
+            ("read-toggle", "settings:read", "Avto javob berganda xabarni o‘qish", "settings_read_enabled"),
+            ("currency-toggle", "settings:currency", "Valyuta miqdorini hisoblash", "settings_currency_enabled"),
+        ):
+            asyncio.run(bot.process_update({"callback_query": {"id": callback_id, "from": user, "data": data, "message": base}}))
+            self.assertEqual(bot.store.get_user_setting(1266, key), "0")
+            self.assertEqual(bot.telegram.callback_answers[-1], (callback_id, f"{label} o‘chirildi 🔕!", True))
+            labels = [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row]
+            self.assertTrue(any(f"{label}: off" in item for item in labels))
+            callback_id_on = callback_id + "-on"
+            asyncio.run(bot.process_update({"callback_query": {"id": callback_id_on, "from": user, "data": data, "message": base}}))
+            self.assertEqual(bot.store.get_user_setting(1266, key), "1")
+            self.assertEqual(bot.telegram.callback_answers[-1], (callback_id_on, f"{label} yoqildi 🔔!", True))
+            labels = [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row]
+            self.assertTrue(any(f"{label}: on" in item for item in labels))
+
     def test_vip_edit_settings_screen_has_requested_controls(self) -> None:
         bot = self._bot()
         user = {"id": 1261}
@@ -711,6 +740,21 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertEqual(bot.store.get_user_setting(1263, "edit_notify_type"), "copy")
         self.assertEqual(bot.store.get_user_setting(1263, "edit_notify_timestamp"), "1")
         self.assertIn("Tahrirlangan xabarni yuborish: on", bot.telegram.sent[-1]["text"])
+
+    def test_business_typing_and_read_toggles_control_api_calls(self) -> None:
+        bot = self._bot()
+        bot.store.set_user_setting(8645314130, "settings_typing_enabled", "0")
+        bot.store.set_user_setting(8645314130, "settings_read_enabled", "0")
+        incoming = {"message_id": 78, "business_connection_id": "bc-1", "chat": {"id": 9002}, "from": {"id": 1267}, "date": 1700000000, "text": "Salom"}
+        asyncio.run(bot.process_update({"business_message": incoming}))
+        self.assertEqual(bot.telegram.typing_calls, [])
+        self.assertEqual(bot.telegram.read_business_calls, [])
+        bot.store.set_user_setting(8645314130, "settings_typing_enabled", "1")
+        bot.store.set_user_setting(8645314130, "settings_read_enabled", "1")
+        incoming["message_id"] = 79
+        asyncio.run(bot.process_update({"business_message": incoming}))
+        self.assertEqual(bot.telegram.typing_calls[-1], (9002, "bc-1"))
+        self.assertEqual(bot.telegram.read_business_calls[-1], ("bc-1", 79))
 
     def test_vip_edit_and_delete_business_notifications_use_saved_settings(self) -> None:
         bot = self._bot()
