@@ -600,6 +600,18 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertEqual(bot.telegram.edited_media[-1]["media"], "commands-photo")
         self.assertEqual(bot.telegram.deleted, [])
 
+    def test_auto_replies_list_and_permissions_toggle(self) -> None:
+        bot = self._bot()
+        bot.store.set_setting("start_media_file_id", "start-photo")
+        user = {"id": 1255}
+        base = {"chat": {"id": 1255}, "message_id": 10}
+        asyncio.run(bot.process_update({"callback_query": {"id": "auto-list", "from": user, "data": "menu:auto_replies", "message": base}}))
+        self.assertIn(".help ni ishlatish: Hamma", bot.telegram.edited_media[-1]["caption"])
+        asyncio.run(bot.process_update({"callback_query": {"id": "auto-help-off", "from": user, "data": "auto:toggle:help", "message": base}}))
+        self.assertEqual(bot.store.get_user_setting(1255, "auto_reply_help_permission"), "none")
+        self.assertEqual(bot.telegram.callback_answers[-1], ("auto-help-off", ".help buyrug‘i: Hech kim ✅", True))
+        self.assertIn(".help ni ishlatish: Hech kim", bot.telegram.edited_media[-1]["caption"])
+
     def test_profile_auto_replies_settings_media_callbacks_edit_one_message(self) -> None:
         bot = self._bot()
         bot.store.set_setting("start_media_file_id", "start-photo")

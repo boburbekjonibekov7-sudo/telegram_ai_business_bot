@@ -52,6 +52,7 @@ COMMANDS_PAGE_2_TEXT = """🤖 Chatbot buyruqlari — davom:
 .dice6 — 🏀 yuborish!"""
 GUIDE_CONNECT_CAPTION = "🤖 Chatbotni ulash qo‘llanmasi"
 GUIDE_USAGE_CAPTION = "🤖 Chatbotdan foydalanish qo‘llanmasi"
+AUTO_REPLY_COMMANDS = ("help", "ping", "ai", "down", "music", "type", "emoji", "dice", "checklist", "info")
 VIP_FEATURES_TEXT = """📩 Avto javoblar: 100 ta
 🤖 AI avto javob (kunlik): 500 ta
 🧠 «.ai» savol (kunlik): 100 ta
@@ -713,7 +714,7 @@ class BusinessAiBot:
             "settings:edit:toggle", "settings:edit:time", "settings:delete:toggle", "settings:delete:time",
             "settings:apk", "settings:typing", "settings:read", "settings:currency",
         }
-        if data not in toggle_callbacks:
+        if data not in toggle_callbacks and not data.startswith("auto:toggle:"):
             await self.telegram.answer_callback_query(callback_id)
         if not isinstance(chat_id, int) or not isinstance(message_id, int):
             return
@@ -927,7 +928,19 @@ class BusinessAiBot:
             await self._render_media_or_text(chat_id, f"{title}\n\nVIP 💎 imkoniyatlari uchun quyidagi tugmani bosing.", {"inline_keyboard": [[{"text": "VIP 💎", "callback_data": "profile:vip"}], [{"text": "🔙 Sozlamalar", "callback_data": "menu:settings"}]]}, "start", message_id)
             return
         if data == "menu:auto_replies":
-            await self._render_media_or_text(chat_id, "💬 Avto javoblar ro‘yxati\n\nBu bo‘lim Chat Automation ulanishi orqali boshqariladi.", self._about_keyboard(), "start", message_id)
+            await self._render_media_or_text(chat_id, self._auto_replies_text(user_id), self._auto_replies_keyboard(user_id), "start", message_id)
+            return
+        if data.startswith("auto:toggle:"):
+            command = data.rsplit(":", 1)[-1]
+            if command not in AUTO_REPLY_COMMANDS:
+                return
+            key = f"auto_reply_{command}_permission"
+            current = self._user_setting(user_id, key, "all")
+            enabled_for_all = current != "all"
+            self._set_user_setting(user_id, key, "all" if enabled_for_all else "none")
+            status = "Hamma" if enabled_for_all else "Hech kim"
+            await self.telegram.answer_callback_query(callback_id, f".{command} buyrug‘i: {status} ✅", True)
+            await self._render_media_or_text(chat_id, self._auto_replies_text(user_id), self._auto_replies_keyboard(user_id), "start", message_id)
             return
         if data == "menu:about":
             await self._render_media_or_text(chat_id, BOT_ABOUT_TEXT, self._about_keyboard(), "start", message_id)
@@ -1363,6 +1376,21 @@ Qisqa qo‘llanma (ochish uchun bosing):
                 except (TelegramApiError, AttributeError) as caption_exc:
                     LOGGER.warning("Start text/caption media fallback ishlamadi: %s; %s", exc, caption_exc)
         await self._send_chunks(chat_id, start_text, None, reply_to, self._main_menu_keyboard())
+
+    def _auto_replies_text(self, user_id: int | None) -> str:
+        lines = ["💬 Avto javoblar ro‘yxati", "", "Qaysi buyruqni kim ishlatishini tanlang:"]
+        for command in AUTO_REPLY_COMMANDS:
+            status = "Hamma" if self._user_setting(user_id or 0, f"auto_reply_{command}_permission", "all") == "all" else "Hech kim"
+            lines.append(f".{command} ni ishlatish: {status}")
+        return "\n".join(lines)
+
+    def _auto_replies_keyboard(self, user_id: int | None) -> dict[str, Any]:
+        rows: list[list[dict[str, str]]] = []
+        for command in AUTO_REPLY_COMMANDS:
+            status = "Hamma" if self._user_setting(user_id or 0, f"auto_reply_{command}_permission", "all") == "all" else "Hech kim"
+            rows.append([{"text": f".{command} ni ishlatish: {status}", "callback_data": f"auto:toggle:{command}"}])
+        rows.append([{"text": "🔙 Orqaga", "callback_data": "menu:home"}])
+        return {"inline_keyboard": rows}
 
     @staticmethod
     def _about_keyboard() -> dict[str, Any]:
