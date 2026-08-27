@@ -559,6 +559,28 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertEqual(bot.telegram.photos[-1]["photo"], "start-photo")
         self.assertIn("📚 Buyruqlar", [button["text"] for row in bot.telegram.photos[-1]["reply_markup"]["inline_keyboard"] for button in row])
 
+    def test_vip_profile_shows_vip_tariff_and_limits(self) -> None:
+        bot = self._bot()
+        user = {"id": 1260}
+        bot.store.grant_premium(1260, time.time() + 86400, "test")
+        asyncio.run(bot.process_update({"callback_query": {"id": "vip-profile", "from": user, "data": "menu:profile", "message": {"chat": {"id": 1260}, "message_id": 10}}}))
+        text = bot.telegram.sent[-1]["text"]
+        self.assertIn("Tarifingiz: VIP 💎", text)
+        self.assertIn("📩 Avto javoblar: 100 ta", text)
+        self.assertIn("🤖 AI avto javob (kunlik): 500 ta", text)
+        self.assertIn("🧠 «.ai» savol (kunlik): 100 ta", text)
+        self.assertIn("🖼 «.img» / «.rasm» (kunlik): 5 ta", text)
+        self.assertNotIn("Tarifingiz: Bepul", text)
+
+    def test_owner_profile_shows_unlimited_limits(self) -> None:
+        bot = self._bot()
+        owner = {"id": 8645314130}
+        asyncio.run(bot.process_update({"callback_query": {"id": "owner-profile", "from": owner, "data": "menu:profile", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        text = bot.telegram.sent[-1]["text"]
+        self.assertIn("Tarifingiz: Owner ∞", text)
+        self.assertEqual(text.count("∞"), 6)
+        self.assertNotIn("Tarifingiz: Bepul", text)
+
     def test_profile_removes_balance_referral_and_replaces_tariffs_with_vip(self) -> None:
         bot = self._bot()
         user = {"id": 1254}

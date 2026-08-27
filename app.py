@@ -878,11 +878,22 @@ class BusinessAiBot:
             await self._send_chunks(chat_id, text, None, None, markup)
 
     def _profile_text(self, user_id: int | None) -> str:
-        active = self._has_premium(user_id)
-        plan = "VIP 💎" if active else "Bepul"
-        until = self._premium_until(user_id)
-        expiry = time.strftime("%Y-%m-%d", time.localtime(until)) if active and until else "—"
-        return f"👤 Profil:\n\n👑 Tarifingiz: {plan}\n⏰ Tarif tugashi: {expiry}\n\n💬 Avto javoblar: 0/5\n🤖 AI avto javob (bugun): 0/500\n🧠 AI javob limiti: 25"
+        is_owner = user_id == OWNER_ADMIN_ID
+        active = is_owner or self._has_premium(user_id)
+        if is_owner:
+            plan = "Owner ∞"
+            expiry = "∞"
+            limits = "📩 Avto javoblar: ∞\n🤖 AI avto javob (kunlik): ∞\n🧠 «.ai» savol (kunlik): ∞\n🖼 «.img» / «.rasm» (kunlik): ∞"
+        elif active:
+            plan = "VIP 💎"
+            until = self._premium_until(user_id)
+            expiry = time.strftime("%Y-%m-%d", time.localtime(until)) if until else "—"
+            limits = "📩 Avto javoblar: 100 ta\n🤖 AI avto javob (kunlik): 500 ta\n🧠 «.ai» savol (kunlik): 100 ta\n🖼 «.img» / «.rasm» (kunlik): 5 ta"
+        else:
+            plan = "Bepul"
+            expiry = "—"
+            limits = "💬 Avto javoblar: 0/5\n🤖 AI avto javob (bugun): 0/500\n🧠 AI javob limiti: 25"
+        return f"👤 Profil:\n\n👑 Tarifingiz: {plan}\n⏰ Tarif tugashi: {expiry}\n\n{limits}"
 
     @staticmethod
     def _profile_keyboard() -> dict[str, Any]:
