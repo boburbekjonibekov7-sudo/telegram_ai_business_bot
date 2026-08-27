@@ -19,7 +19,7 @@ class JsonStore:
 
     def _load(self) -> dict[str, Any]:
         if not self.path.exists():
-            return {"__role__": "", "__manual_pause_enabled__": True, "__settings__": {}, "__user_settings__": {}}
+            return {"__role__": "", "__manual_pause_enabled__": True, "__settings__": {}, "__user_settings__": {}, "__auto_replies__": {}}
         try:
             loaded: Any = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
@@ -29,11 +29,12 @@ class JsonStore:
                     "__manual_pause_enabled__": loaded.get("__manual_pause_enabled__", True) is not False,
                     "__settings__": loaded.get("__settings__", {}) if isinstance(loaded.get("__settings__", {}), dict) else {},
                     "__user_settings__": loaded.get("__user_settings__", {}) if isinstance(loaded.get("__user_settings__", {}), dict) else {},
+                    "__auto_replies__": loaded.get("__auto_replies__", {}) if isinstance(loaded.get("__auto_replies__", {}), dict) else {},
                 }
                 result.update({
                     str(key): value
                     for key, value in loaded.items()
-                    if key not in {"__role__", "__owner_activity__", "__manual_pause_enabled__", "__settings__", "__user_settings__"} and isinstance(value, list)
+                    if key not in {"__role__", "__owner_activity__", "__manual_pause_enabled__", "__settings__", "__user_settings__", "__auto_replies__"} and isinstance(value, list)
                 })
                 return result
         except (OSError, json.JSONDecodeError):
@@ -43,7 +44,7 @@ class JsonStore:
                 self.path.replace(backup)
             except OSError:
                 pass
-        return {"__role__": "", "__manual_pause_enabled__": True, "__settings__": {}}
+        return {"__role__": "", "__manual_pause_enabled__": True, "__settings__": {}, "__user_settings__": {}, "__auto_replies__": {}}
 
     def _save(self) -> None:
         temporary = self.path.with_suffix(".tmp")
@@ -139,6 +140,60 @@ class JsonStore:
             if isinstance(values, dict) and isinstance(values.get(str(user_id)), dict):
                 values[str(user_id)].pop(str(key), None)
             self._save()
+
+    def list_auto_replies(self, user_id: int) -> list[dict[str, Any]]:
+        with self.lock:
+            values = self.data.get("__auto_replies__", {})
+            rows = values.get(str(user_id), []) if isinstance(values, dict) else []
+            return [dict(row) for row in rows if isinstance(row, dict)]
+
+    def upsert_auto_reply(self, user_id: int, trigger: str, response: str, record_id: int | None = None) -> int:
+        trigger = str(trigger).strip()
+        response = str(response).strip()
+        with self.lock:
+            values = self.data.setdefault("__auto_replies__", {})
+            if not isinstance(values, dict):
+                values = {}
+                self.data["__auto_replies__"] = values
+            rows = values.setdefault(str(user_id), [])
+            if not isinstance(rows, list):
+                rows = []
+                values[str(user_id)] = rows
+            if record_id is not None:
+                for row in rows:
+                    if isinstance(row, dict) and int(row.get("id", 0)) == int(record_id):
+                        row.update({"trigger": trigger, "response": response, "enabled": True})
+                        self._save()
+                        return int(record_id)
+            for row in rows:
+                if isinstance(row, dict) and str(row.get("trigger", "")).casefold() == trigger.casefold():
+                    row.update({"response": response, "enabled": True})
+                    self._save()
+                    return int(row.get("id", 0))
+            new_id = max([int(row.get("id", 0)) for row in rows if isinstance(row, dict)] + [0]) + 1
+            rows.append({"id": new_id, "user_id": int(user_id), "trigger": trigger, "response": response, "enabled": True})
+            self._save()
+            return new_id
+
+    def get_auto_reply(self, user_id: int, record_id: int) -> dict[str, Any] | None:
+        return next((row for row in self.list_auto_replies(user_id) if int(row.get("id", 0)) == int(record_id)), None)
+
+    def delete_auto_reply(self, user_id: int, record_id: int) -> bool:
+        with self.lock:
+            values = self.data.get("__auto_replies__", {})
+            rows = values.get(str(user_id), []) if isinstance(values, dict) else []
+            if not isinstance(rows, list):
+                return False
+            old_len = len(rows)
+            values[str(user_id)] = [row for row in rows if not (isinstance(row, dict) and int(row.get("id", 0)) == int(record_id))]
+            changed = len(values[str(user_id)]) != old_len
+            if changed:
+                self._save()
+            return changed
+
+    def find_auto_reply(self, user_id: int, trigger: str) -> dict[str, Any] | None:
+        wanted = str(trigger).strip().casefold()
+        return next((row for row in self.list_auto_replies(user_id) if row.get("enabled", True) and str(row.get("trigger", "")).casefold() == wanted), None)
 
     def mark_owner_activity(self, key: str, timestamp: float | None = None) -> None:
         with self.lock:

@@ -200,6 +200,19 @@ class PostgresStore:
                         )
                         """
                     )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS telegram_auto_replies (
+                            id BIGSERIAL PRIMARY KEY,
+                            user_id BIGINT NOT NULL,
+                            trigger TEXT NOT NULL,
+                            response TEXT NOT NULL,
+                            enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            UNIQUE (user_id, trigger)
+                        )
+                        """
+                    )
             self.__class__._schema_ready = True
 
     @staticmethod
@@ -569,6 +582,78 @@ class PostgresStore:
                     cursor.execute("UPDATE telegram_premium_access SET subscription_state = %s, updated_at = NOW() WHERE user_id = %s", (state, user_id))
         except Exception as exc:
             LOGGER.warning("Postgres subscription state update failed: %s", exc)
+
+    def list_auto_replies(self, user_id: int) -> list[dict[str, object]]:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT id, user_id, trigger, response, enabled FROM telegram_auto_replies WHERE user_id = %s ORDER BY id LIMIT 100",
+                        (user_id,),
+                    )
+                    rows = cursor.fetchall()
+            return [{"id": int(row[0]), "user_id": int(row[1]), "trigger": str(row[2]), "response": str(row[3]), "enabled": bool(row[4])} for row in rows]
+        except Exception as exc:
+            LOGGER.warning("Postgres auto-reply list read failed: %s", exc)
+            return []
+
+    def upsert_auto_reply(self, user_id: int, trigger: str, response: str, record_id: int | None = None) -> int:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    if record_id is not None:
+                        cursor.execute(
+                            "UPDATE telegram_auto_replies SET trigger = %s, response = %s, enabled = TRUE, updated_at = NOW() WHERE id = %s AND user_id = %s RETURNING id",
+                            (trigger, response, record_id, user_id),
+                        )
+                        row = cursor.fetchone()
+                        if row:
+                            return int(row[0])
+                    cursor.execute(
+                        """
+                        INSERT INTO telegram_auto_replies (user_id, trigger, response, enabled)
+                        VALUES (%s, %s, %s, TRUE)
+                        ON CONFLICT (user_id, trigger) DO UPDATE SET response = EXCLUDED.response, enabled = TRUE, updated_at = NOW()
+                        RETURNING id
+                        """,
+                        (user_id, trigger, response),
+                    )
+                    row = cursor.fetchone()
+            return int(row[0]) if row else 0
+        except Exception as exc:
+            LOGGER.warning("Postgres auto-reply write failed: %s", exc)
+            return 0
+
+    def get_auto_reply(self, user_id: int, record_id: int) -> dict[str, object] | None:
+        return next((row for row in self.list_auto_replies(user_id) if int(row.get("id", 0)) == int(record_id)), None)
+
+    def delete_auto_reply(self, user_id: int, record_id: int) -> bool:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("DELETE FROM telegram_auto_replies WHERE id = %s AND user_id = %s", (record_id, user_id))
+                    return cursor.rowcount > 0
+        except Exception as exc:
+            LOGGER.warning("Postgres auto-reply delete failed: %s", exc)
+            return False
+
+    def find_auto_reply(self, user_id: int, trigger: str) -> dict[str, object] | None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT id, user_id, trigger, response, enabled FROM telegram_auto_replies WHERE user_id = %s AND LOWER(trigger) = LOWER(%s) AND enabled = TRUE LIMIT 1",
+                        (user_id, trigger),
+                    )
+                    row = cursor.fetchone()
+            return {"id": int(row[0]), "user_id": int(row[1]), "trigger": str(row[2]), "response": str(row[3]), "enabled": bool(row[4])} if row else None
+        except Exception as exc:
+            LOGGER.warning("Postgres auto-reply trigger lookup failed: %s", exc)
+            return None
 
     def user_manual_pause_enabled(self, user_id: int, default: bool = True) -> bool:
         try:

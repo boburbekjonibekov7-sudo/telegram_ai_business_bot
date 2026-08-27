@@ -52,7 +52,7 @@ COMMANDS_PAGE_2_TEXT = """🤖 Chatbot buyruqlari — davom:
 .dice6 — 🏀 yuborish!"""
 GUIDE_CONNECT_CAPTION = "🤖 Chatbotni ulash qo‘llanmasi"
 GUIDE_USAGE_CAPTION = "🤖 Chatbotdan foydalanish qo‘llanmasi"
-AUTO_REPLY_COMMANDS = ("help", "ping", "ai", "down", "music", "type", "emoji", "dice", "checklist", "info")
+AUTO_REPLY_COMMANDS = ("help", "ping", "settings", "add", "list", "edit", "delete", "info", "type", "ai", "emoji", "dice")
 VIP_FEATURES_TEXT = """📩 Avto javoblar: 100 ta
 🤖 AI avto javob (kunlik): 500 ta
 🧠 «.ai» savol (kunlik): 100 ta
@@ -569,11 +569,14 @@ class BusinessAiBot:
 
         text = self._message_text(message)
         owner_session = self._owner_session(user_id) if not is_business and user_id == OWNER_ADMIN_ID else None
+        user_session = self._user_session(user_id) if not is_business and isinstance(user_id, int) else None
         if not text and not (owner_session and owner_session.get("state") in {"broadcast_forward", "media_upload"}):
             return
         if not is_business and await self._handle_admin_command(message, text, chat_id):
             return
         if not is_business and user_id == OWNER_ADMIN_ID and await self._handle_owner_session(message, text, chat_id):
+            return
+        if not is_business and isinstance(user_id, int) and await self._handle_auto_reply_session(message, text, chat_id, user_session):
             return
 
         if not is_business and user_id != OWNER_ADMIN_ID and not await self._ensure_subscription_or_prompt(chat_id, user_id, message.get("message_id")):
@@ -611,6 +614,19 @@ class BusinessAiBot:
                 return
 
         async with self.chat_locks[storage_key]:
+            reply_owner_id = business_owner_id if is_business else user_id
+            if isinstance(reply_owner_id, int):
+                finder = getattr(self.store, "find_auto_reply", None)
+                try:
+                    custom_reply = finder(reply_owner_id, text) if callable(finder) else None
+                except Exception as exc:
+                    LOGGER.warning("Auto-reply trigger qidirilmadi: %s", exc)
+                    custom_reply = None
+                if isinstance(custom_reply, dict):
+                    await self._send_chunks(chat_id, str(custom_reply.get("response") or ""), business_connection_id, message.get("message_id"))
+                    return
+            if await self._handle_builtin_auto_command(message, text, chat_id, is_business, business_owner_id):
+                return
             if text.lower() in {"/reset", "/clear"}:
                 self.store.clear(storage_key)
                 await self._send_chunks(
@@ -929,6 +945,30 @@ class BusinessAiBot:
             return
         if data == "menu:auto_replies":
             await self._render_media_or_text(chat_id, self._auto_replies_text(user_id), self._auto_replies_keyboard(user_id), "start", message_id)
+            return
+        if data == "auto:add":
+            self._set_user_session(user_id, "auto_add_trigger")
+            await self._render_media_or_text(chat_id, "➕ Avto javob qo‘shish\n\nTrigger so‘z yoki iborani yuboring. Bekor qilish: /cancel", self._auto_reply_back_keyboard(), "start", message_id)
+            return
+        if data == "auto:permissions":
+            await self._render_media_or_text(chat_id, self._auto_permissions_text(user_id), self._auto_permissions_keyboard(), "start", message_id)
+            return
+        if data.startswith("auto:delete:"):
+            record_id = self._parse_record_id(data)
+            if record_id is not None and isinstance(user_id, int):
+                deleted = self._delete_auto_reply(user_id, record_id)
+                notice = "✅ Avto javob o‘chirildi." if deleted else "Avto javob topilmadi."
+                await self.telegram.answer_callback_query(callback_id, notice, True)
+                await self._render_media_or_text(chat_id, self._auto_replies_text(user_id), self._auto_replies_keyboard(user_id), "start", message_id)
+            return
+        if data.startswith("auto:edit:"):
+            record_id = self._parse_record_id(data)
+            record = self._get_auto_reply(user_id, record_id) if record_id is not None else None
+            if not record:
+                await self.telegram.answer_callback_query(callback_id, "Avto javob topilmadi.", True)
+                return
+            self._set_user_session(user_id, "auto_edit", {"record_id": record_id})
+            await self._render_media_or_text(chat_id, "✏️ Avto javobni tahrirlash\n\nYangi trigger va javobni quyidagi ko‘rinishda yuboring:\ntrigger | javob\n\nBekor qilish: /cancel", self._auto_reply_back_keyboard(), "start", message_id)
             return
         if data.startswith("auto:toggle:"):
             command = data.rsplit(":", 1)[-1]
@@ -1287,6 +1327,12 @@ Qisqa qo‘llanma (ochish uchun bosing):
             [{"text": "🔙 Qo‘llanma", "callback_data": "guide:home"}],
         ]}
 
+    @staticmethod
+    def _media_caption(text: str) -> str:
+        # Photo/video caption Telegramda 1024 belgidan oshmasligi kerak.
+        text = str(text)
+        return text if len(text) <= 1024 else text[:1021].rstrip() + "…"
+
     async def _render_media_or_text(
         self,
         chat_id: int,
@@ -1300,7 +1346,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
             file_id, media_type = media
             if edit_message_id is not None:
                 try:
-                    await self.telegram.edit_message_media(chat_id, edit_message_id, media_type, file_id, text, markup)
+                    await self.telegram.edit_message_media(chat_id, edit_message_id, media_type, file_id, self._media_caption(text), markup)
                     return
                 except (TelegramApiError, AttributeError) as exc:
                     LOGGER.warning("Media xabarini tahrirlashda xato slot=%s: %s", slot, exc)
@@ -1309,11 +1355,16 @@ Qisqa qo‘llanma (ochish uchun bosing):
                         return
                     except (TelegramApiError, AttributeError) as caption_exc:
                         LOGGER.warning("Media caption/keyboard fallback ham ishlamadi slot=%s: %s", slot, caption_exc)
+                        try:
+                            await self.telegram.edit_message_text(chat_id, edit_message_id, text, markup)
+                            return
+                        except (TelegramApiError, AttributeError) as text_exc:
+                            LOGGER.warning("Media text fallback ham ishlamadi slot=%s: %s", slot, text_exc)
             try:
                 if media_type == "video":
-                    await self.telegram.send_video(chat_id, file_id, text, reply_markup=markup)
+                    await self.telegram.send_video(chat_id, file_id, self._media_caption(text), reply_markup=markup)
                 else:
-                    await self.telegram.send_photo(chat_id, file_id, text, reply_markup=markup)
+                    await self.telegram.send_photo(chat_id, file_id, self._media_caption(text), reply_markup=markup)
                 return
             except TelegramApiError as exc:
                 LOGGER.warning("Konfiguratsiya qilingan media yuborilmadi slot=%s: %s", slot, exc)
@@ -1351,7 +1402,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
         if media:
             if edit_message_id is not None:
                 try:
-                    await self.telegram.edit_message_media(chat_id, edit_message_id, media[1], media[0], start_text, self._main_menu_keyboard())
+                    await self.telegram.edit_message_media(chat_id, edit_message_id, media[1], media[0], self._media_caption(start_text), self._main_menu_keyboard())
                     return
                 except (TelegramApiError, AttributeError) as exc:
                     LOGGER.warning("Start media xabarini tahrirlashda xato: %s", exc)
@@ -1360,8 +1411,13 @@ Qisqa qo‘llanma (ochish uchun bosing):
                         return
                     except (TelegramApiError, AttributeError) as caption_exc:
                         LOGGER.warning("Start media caption/keyboard fallback ham ishlamadi: %s", caption_exc)
+                        try:
+                            await self.telegram.edit_message_text(chat_id, edit_message_id, start_text, self._main_menu_keyboard())
+                            return
+                        except (TelegramApiError, AttributeError) as text_exc:
+                            LOGGER.warning("Start media text fallback ham ishlamadi: %s", text_exc)
             try:
-                await self.telegram.send_photo(chat_id, media[0], start_text, reply_markup=self._main_menu_keyboard())
+                await self.telegram.send_photo(chat_id, media[0], self._media_caption(start_text), reply_markup=self._main_menu_keyboard())
                 return
             except TelegramApiError as exc:
                 LOGGER.warning("Start rasmi yuborilmadi: %s", exc)
@@ -1378,19 +1434,85 @@ Qisqa qo‘llanma (ochish uchun bosing):
         await self._send_chunks(chat_id, start_text, None, reply_to, self._main_menu_keyboard())
 
     def _auto_replies_text(self, user_id: int | None) -> str:
-        lines = ["💬 Avto javoblar ro‘yxati", "", "Qaysi buyruqni kim ishlatishini tanlang:"]
+        lines = ["💬 Avto javoblar ro‘yxati", "", "⚙️ Buyruqlar ruxsati:"]
         for command in AUTO_REPLY_COMMANDS:
             status = "Hamma" if self._user_setting(user_id or 0, f"auto_reply_{command}_permission", "all") == "all" else "Hech kim"
             lines.append(f".{command} ni ishlatish: {status}")
+        records = self._list_auto_replies(user_id)
+        lines.extend(["", "📩 Shaxsiy avto javoblar:"])
+        if records:
+            for row in records[:20]:
+                state = "on" if row.get("enabled", True) else "off"
+                lines.append(f"• {row.get('trigger', '')} → {str(row.get('response', ''))[:80]} ({state})")
+        else:
+            lines.append("Hozircha avto javoblar qo‘shilmagan.")
         return "\n".join(lines)
 
     def _auto_replies_keyboard(self, user_id: int | None) -> dict[str, Any]:
-        rows: list[list[dict[str, str]]] = []
-        for command in AUTO_REPLY_COMMANDS:
-            status = "Hamma" if self._user_setting(user_id or 0, f"auto_reply_{command}_permission", "all") == "all" else "Hech kim"
-            rows.append([{"text": f".{command} ni ishlatish: {status}", "callback_data": f"auto:toggle:{command}"}])
+        rows: list[list[dict[str, str]]] = [[{"text": "➕ Avto javob qo‘shish", "callback_data": "auto:add"}]]
+        for row in self._list_auto_replies(user_id)[:20]:
+            record_id = int(row.get("id", 0))
+            trigger = str(row.get("trigger", ""))[:28]
+            rows.append([
+                {"text": f"✏️ {trigger}", "callback_data": f"auto:edit:{record_id}"},
+                {"text": "🗑", "callback_data": f"auto:delete:{record_id}"},
+            ])
+        rows.append([{"text": "⚙️ Buyruqlar ruxsati", "callback_data": "auto:permissions"}])
         rows.append([{"text": "🔙 Orqaga", "callback_data": "menu:home"}])
         return {"inline_keyboard": rows}
+
+    def _auto_permissions_text(self, user_id: int | None) -> str:
+        lines = ["⚙️ Buyruqlar ruxsati", "", "Har bir tugma bosilganda Hamma / Hech kim holati almashadi:"]
+        for command in AUTO_REPLY_COMMANDS:
+            status = "Hamma" if self._user_setting(user_id or 0, f"auto_reply_{command}_permission", "all") == "all" else "Hech kim"
+            lines.append(f".{command}: {status}")
+        return "\n".join(lines)
+
+    def _auto_permissions_keyboard(self) -> dict[str, Any]:
+        rows = [[{"text": f".{command}", "callback_data": f"auto:toggle:{command}"}] for command in AUTO_REPLY_COMMANDS]
+        rows.extend([[{"text": "🔙 Avto javoblar ro‘yxati", "callback_data": "menu:auto_replies"}], [{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}]])
+        return {"inline_keyboard": rows}
+
+    @staticmethod
+    def _auto_reply_back_keyboard() -> dict[str, Any]:
+        return {"inline_keyboard": [[{"text": "🔙 Avto javoblar ro‘yxati", "callback_data": "menu:auto_replies"}], [{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}]]}
+
+    def _list_auto_replies(self, user_id: int | None) -> list[dict[str, object]]:
+        if not isinstance(user_id, int):
+            return []
+        getter = getattr(self.store, "list_auto_replies", None)
+        try:
+            rows = getter(user_id) if callable(getter) else []
+            return [dict(row) for row in rows if isinstance(row, dict)]
+        except Exception as exc:
+            LOGGER.warning("Auto-reply list o‘qilmadi user=%s: %s", user_id, exc)
+            return []
+
+    def _get_auto_reply(self, user_id: int | None, record_id: int | None) -> dict[str, object] | None:
+        if not isinstance(user_id, int) or record_id is None:
+            return None
+        getter = getattr(self.store, "get_auto_reply", None)
+        try:
+            row = getter(user_id, record_id) if callable(getter) else None
+            return dict(row) if isinstance(row, dict) else None
+        except Exception as exc:
+            LOGGER.warning("Auto-reply o‘qilmadi user=%s: %s", user_id, exc)
+            return None
+
+    def _delete_auto_reply(self, user_id: int, record_id: int) -> bool:
+        deleter = getattr(self.store, "delete_auto_reply", None)
+        try:
+            return bool(callable(deleter) and deleter(user_id, record_id))
+        except Exception as exc:
+            LOGGER.warning("Auto-reply o‘chirilmadi user=%s: %s", user_id, exc)
+            return False
+
+    @staticmethod
+    def _parse_record_id(data: str) -> int | None:
+        try:
+            return int(data.rsplit(":", 1)[-1])
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _about_keyboard() -> dict[str, Any]:
@@ -1637,6 +1759,27 @@ Qisqa qo‘llanma (ochish uchun bosing):
             )
 
 
+    def _user_session(self, user_id: int | None) -> dict[str, Any] | None:
+        if not isinstance(user_id, int):
+            return None
+        getter = getattr(self.store, "get_admin_session", None)
+        session = getter(user_id) if callable(getter) else None
+        return session if isinstance(session, dict) else None
+
+    def _set_user_session(self, user_id: int | None, state: str, data: dict[str, Any] | None = None) -> None:
+        if not isinstance(user_id, int):
+            return
+        setter = getattr(self.store, "set_admin_session", None)
+        if callable(setter):
+            setter(user_id, state, data or {})
+
+    def _clear_user_session(self, user_id: int | None) -> None:
+        if not isinstance(user_id, int):
+            return
+        clearer = getattr(self.store, "clear_admin_session", None)
+        if callable(clearer):
+            clearer(user_id)
+
     def _owner_session(self, user_id: int | None) -> dict[str, Any] | None:
         if user_id != OWNER_ADMIN_ID:
             return None
@@ -1657,6 +1800,125 @@ Qisqa qo‘llanma (ochish uchun bosing):
         clearer = getattr(self.store, "clear_admin_session", None)
         if callable(clearer):
             clearer(user_id)
+
+    async def _handle_auto_reply_session(self, message: dict[str, Any], text: str, chat_id: int, session: dict[str, Any] | None) -> bool:
+        user_id = self._user_id(message)
+        if not isinstance(user_id, int) or not session:
+            return False
+        state = str(session.get("state") or "")
+        data = session.get("data") if isinstance(session.get("data"), dict) else {}
+        if text.casefold() in {"/cancel", "bekor"}:
+            self._clear_user_session(user_id)
+            await self._send_chunks(chat_id, "✅ Amal bekor qilindi.", None, message.get("message_id"), self._auto_reply_back_keyboard())
+            return True
+        if state == "auto_add_trigger":
+            if not text.strip() or len(text.strip()) > 200:
+                await self._send_chunks(chat_id, "Trigger 1–200 belgi bo‘lishi kerak.", None, message.get("message_id"))
+                return True
+            self._set_user_session(user_id, "auto_add_response", {"trigger": text.strip()})
+            await self._send_chunks(chat_id, "✅ Trigger saqlandi. Endi unga yuboriladigan javob matnini yuboring.", None, message.get("message_id"))
+            return True
+        if state == "auto_add_response":
+            trigger = str(data.get("trigger") or "").strip()
+            if not trigger or not text.strip():
+                await self._send_chunks(chat_id, "Trigger va javob bo‘sh bo‘lmasligi kerak.", None, message.get("message_id"))
+                return True
+            writer = getattr(self.store, "upsert_auto_reply", None)
+            record_id = writer(user_id, trigger, text.strip()) if callable(writer) else 0
+            self._clear_user_session(user_id)
+            await self._send_chunks(chat_id, f"✅ Avto javob saqlandi (ID: {record_id}).", None, message.get("message_id"), self._auto_reply_back_keyboard())
+            return True
+        if state == "auto_edit":
+            record_id = int(data.get("record_id", 0) or 0)
+            if "|" not in text:
+                await self._send_chunks(chat_id, "Format: trigger | javob", None, message.get("message_id"))
+                return True
+            trigger, response = (part.strip() for part in text.split("|", 1))
+            writer = getattr(self.store, "upsert_auto_reply", None)
+            record_id = writer(user_id, trigger, response, record_id) if callable(writer) else 0
+            self._clear_user_session(user_id)
+            await self._send_chunks(chat_id, f"✅ Avto javob yangilandi (ID: {record_id}).", None, message.get("message_id"), self._auto_reply_back_keyboard())
+            return True
+        return False
+
+    async def _handle_builtin_auto_command(self, message: dict[str, Any], text: str, chat_id: int, is_business: bool, business_owner_id: int | None) -> bool:
+        if not text.startswith("."):
+            return False
+        parts = text[1:].split(maxsplit=1)
+        command = (parts[0].split("@", 1)[0].casefold() if parts else "")
+        argument = parts[1].strip() if len(parts) == 2 else ""
+        user_id = self._user_id(message)
+        owner_id = business_owner_id if is_business else user_id
+        if command not in AUTO_REPLY_COMMANDS or not isinstance(owner_id, int):
+            return False
+        connection_id = message.get("business_connection_id") if is_business else None
+        if self._user_setting(owner_id, f"auto_reply_{command}_permission", "all") != "all":
+            await self._send_chunks(chat_id, f".{command} buyrug‘i hozir o‘chirilgan.", connection_id, message.get("message_id"))
+            return True
+        reply_to = message.get("message_id")
+        if command == "help":
+            await self._send_chunks(chat_id, COMMANDS_PAGE_1_TEXT, connection_id, reply_to)
+        elif command == "ping":
+            await self._send_chunks(chat_id, "🏓 Pong!", connection_id, reply_to)
+        elif command == "settings":
+            await self._send_chunks(chat_id, self._settings_text(owner_id), connection_id, reply_to, self._settings_keyboard(owner_id))
+        elif command == "list":
+            rows = self._list_auto_replies(owner_id)
+            body = "💬 Avto javoblar ro‘yxati\n\n" + ("\n".join(f"{row.get('id')}. {row.get('trigger')} → {row.get('response')}" for row in rows) if rows else "Hozircha ro‘yxat bo‘sh.")
+            await self._send_chunks(chat_id, body, connection_id, reply_to)
+        elif command in {"add", "edit", "delete"}:
+            if is_business:
+                await self._send_chunks(chat_id, "Bu boshqaruv buyrug‘i faqat akkaunt egasi chatida ishlaydi.", connection_id, reply_to)
+            elif command == "add":
+                if "|" in argument:
+                    trigger, response = (part.strip() for part in argument.split("|", 1))
+                    writer = getattr(self.store, "upsert_auto_reply", None)
+                    record_id = writer(owner_id, trigger, response) if callable(writer) and trigger and response else 0
+                    await self._send_chunks(chat_id, f"✅ Avto javob saqlandi (ID: {record_id})." if record_id else "Format: .add trigger | javob", None, reply_to)
+                else:
+                    self._set_user_session(owner_id, "auto_add_trigger")
+                    await self._send_chunks(chat_id, "➕ Trigger so‘z yoki iborani yuboring. Bekor qilish: /cancel", None, reply_to, self._auto_reply_back_keyboard())
+            elif command == "edit":
+                edit_parts = argument.split(maxsplit=1)
+                try:
+                    record_id = int(edit_parts[0])
+                except (IndexError, ValueError):
+                    record_id = 0
+                if record_id and len(edit_parts) == 2 and "|" in edit_parts[1]:
+                    trigger, response = (part.strip() for part in edit_parts[1].split("|", 1))
+                    writer = getattr(self.store, "upsert_auto_reply", None)
+                    updated_id = writer(owner_id, trigger, response, record_id) if callable(writer) and trigger and response else 0
+                    await self._send_chunks(chat_id, f"✅ Avto javob yangilandi (ID: {updated_id})." if updated_id else "Avto javob topilmadi.", None, reply_to)
+                else:
+                    await self._send_chunks(chat_id, "✏️ Format: .edit ID trigger | javob", None, reply_to)
+            else:
+                try:
+                    record_id = int(argument)
+                except ValueError:
+                    record_id = 0
+                deleted = self._delete_auto_reply(owner_id, record_id) if record_id else False
+                await self._send_chunks(chat_id, "✅ Avto javob o‘chirildi." if deleted else "Avto javob topilmadi.", None, reply_to)
+        elif command == "info":
+            sender = message.get("from") or {}
+            who = self._display_name(sender)
+            target = f"Business owner ID: {business_owner_id}" if is_business else f"Telegram ID: {user_id}"
+            await self._send_chunks(chat_id, f"👥 Suhbatdosh: {who}\n{target}", connection_id, reply_to)
+        elif command == "type":
+            await self._send_chunks(chat_id, argument or "📝 Matn kiriting.", connection_id, reply_to)
+        elif command == "ai":
+            if not argument:
+                await self._send_chunks(chat_id, "🤖 .ai dan keyin savol yozing.", connection_id, reply_to)
+            else:
+                try:
+                    answer, _provider = await self.ai.answer([{"role": "user", "content": argument}])
+                    await self._send_chunks(chat_id, answer, connection_id, reply_to)
+                except ProviderError:
+                    await self._send_chunks(chat_id, "AI javobini tayyorlab bo‘lmadi.", connection_id, reply_to)
+        elif command == "emoji":
+            await self._send_chunks(chat_id, f"🌟 {argument}" if argument else "🌟 Matn kiriting.", connection_id, reply_to)
+        elif command == "dice":
+            await self._send_chunks(chat_id, "🎲", connection_id, reply_to)
+        return True
 
     async def _handle_owner_session(self, message: dict[str, Any], text: str, chat_id: int) -> bool:
         user_id = self._user_id(message)

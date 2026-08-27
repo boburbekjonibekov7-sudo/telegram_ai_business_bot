@@ -27,6 +27,8 @@ class MemoryStore:
         self.business_profiles: dict[str, dict[str, int | str]] = {}
         self.channels: dict[str, dict[str, str]] = {}
         self.admin_sessions: dict[int, dict[str, object]] = {}
+        self.auto_replies: dict[int, dict[int, dict[str, object]]] = {}
+        self.next_auto_reply_id = 1
         self.settings: dict[str, str] = {}
         self.lock = Lock()
 
@@ -224,6 +226,46 @@ class MemoryStore:
     def clear_admin_session(self, user_id: int) -> None:
         with self.lock:
             self.admin_sessions.pop(user_id, None)
+
+    def list_auto_replies(self, user_id: int) -> list[dict[str, object]]:
+        with self.lock:
+            rows = self.auto_replies.get(int(user_id), {}).values()
+            return [dict(row) for row in rows]
+
+    def upsert_auto_reply(self, user_id: int, trigger: str, response: str, record_id: int | None = None) -> int:
+        trigger = str(trigger).strip()
+        response = str(response).strip()
+        with self.lock:
+            bucket = self.auto_replies.setdefault(int(user_id), {})
+            if record_id is not None and int(record_id) in bucket:
+                row = bucket[int(record_id)]
+                row.update({"trigger": trigger, "response": response, "enabled": True})
+                return int(record_id)
+            for existing_id, row in bucket.items():
+                if str(row.get("trigger", "")).casefold() == trigger.casefold():
+                    row.update({"response": response, "enabled": True})
+                    return int(existing_id)
+            new_id = self.next_auto_reply_id
+            self.next_auto_reply_id += 1
+            bucket[new_id] = {"id": new_id, "user_id": int(user_id), "trigger": trigger, "response": response, "enabled": True}
+            return new_id
+
+    def get_auto_reply(self, user_id: int, record_id: int) -> dict[str, object] | None:
+        with self.lock:
+            row = self.auto_replies.get(int(user_id), {}).get(int(record_id))
+            return dict(row) if row else None
+
+    def delete_auto_reply(self, user_id: int, record_id: int) -> bool:
+        with self.lock:
+            return self.auto_replies.get(int(user_id), {}).pop(int(record_id), None) is not None
+
+    def find_auto_reply(self, user_id: int, trigger: str) -> dict[str, object] | None:
+        wanted = str(trigger).strip().casefold()
+        with self.lock:
+            for row in self.auto_replies.get(int(user_id), {}).values():
+                if row.get("enabled", True) and str(row.get("trigger", "")).casefold() == wanted:
+                    return dict(row)
+        return None
 
     def mark_owner_activity(self, key: str, timestamp: float | None = None) -> None:
         with self.lock:

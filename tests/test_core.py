@@ -14,7 +14,7 @@ from pause_store import UpstashPauseStore
 from postgres_store import PostgresStore
 from storage import JsonStore
 from app import BusinessAiBot
-from telegram_api import TelegramBotApi
+from telegram_api import TelegramApiError, TelegramBotApi
 
 
 class StorageTests(unittest.TestCase):
@@ -1008,6 +1008,75 @@ class TelegramPayloadTests(unittest.TestCase):
         self.assertEqual(result["message_id"], 1)
         self.assertEqual(captured["payload"]["business_connection_id"], "bc")
 
+
+class AutoReplyCrudTests(unittest.TestCase):
+    def _bot(self):
+        bot = AdminPanelAndApkTests()._bot()
+        return bot
+
+    def test_owner_can_add_list_edit_and_delete_auto_reply(self) -> None:
+        bot = self._bot()
+        owner = {"id": 8645314130}
+        base = {"chat": {"id": 8645314130}, "message_id": 10}
+        asyncio.run(bot.process_update({"callback_query": {"id": "auto-open", "from": owner, "data": "menu:auto_replies", "message": base}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "auto-add", "from": owner, "data": "auto:add", "message": base}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 11, "chat": {"id": 8645314130}, "from": owner, "text": "salom"}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 12, "chat": {"id": 8645314130}, "from": owner, "text": "Assalomu alaykum!"}}))
+        rows = bot.store.list_auto_replies(8645314130)
+        self.assertEqual(len(rows), 1)
+        record_id = int(rows[0]["id"])
+        self.assertEqual(rows[0]["trigger"], "salom")
+        self.assertEqual(rows[0]["response"], "Assalomu alaykum!")
+        asyncio.run(bot.process_update({"callback_query": {"id": "auto-edit", "from": owner, "data": f"auto:edit:{record_id}", "message": base}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 13, "chat": {"id": 8645314130}, "from": owner, "text": "hello | Salom, xush kelibsiz!"}}))
+        self.assertEqual(bot.store.get_auto_reply(8645314130, record_id)["response"], "Salom, xush kelibsiz!")
+        asyncio.run(bot.process_update({"callback_query": {"id": "auto-delete", "from": owner, "data": f"auto:delete:{record_id}", "message": base}}))
+        self.assertIsNone(bot.store.get_auto_reply(8645314130, record_id))
+
+    def test_business_customer_gets_saved_auto_reply_and_permission_toggle_blocks_command(self) -> None:
+        bot = self._bot()
+        bot.store.upsert_auto_reply(8645314130, "salom", "Va alaykum assalom!")
+        incoming = {"message_id": 81, "business_connection_id": "bc-1", "chat": {"id": 9003}, "from": {"id": 1270}, "text": "salom"}
+        asyncio.run(bot.process_update({"business_message": incoming}))
+        self.assertEqual(bot.telegram.sent[-1]["text"], "Va alaykum assalom!")
+        bot.store.set_user_setting(8645314130, "auto_reply_ping_permission", "none")
+        incoming["message_id"] = 82
+        incoming["text"] = ".ping"
+        asyncio.run(bot.process_update({"business_message": incoming}))
+        self.assertIn("o‘chirilgan", bot.telegram.sent[-1]["text"])
+
+    def test_auto_reply_permission_button_toggles_persistently(self) -> None:
+        bot = self._bot()
+        user = {"id": 1271}
+        base = {"chat": {"id": 1271}, "message_id": 10}
+        asyncio.run(bot.process_update({"callback_query": {"id": "perm-off", "from": user, "data": "auto:toggle:ping", "message": base}}))
+        self.assertEqual(bot.store.get_user_setting(1271, "auto_reply_ping_permission"), "none")
+        asyncio.run(bot.process_update({"callback_query": {"id": "perm-on", "from": user, "data": "auto:toggle:ping", "message": base}}))
+        self.assertEqual(bot.store.get_user_setting(1271, "auto_reply_ping_permission"), "all")
+        self.assertEqual(bot.telegram.callback_answers[-1], ("perm-on", ".ping buyrug‘i: Hamma ✅", True))
+
+    def test_media_caption_fallback_keeps_same_message_id(self) -> None:
+        bot = self._bot()
+        bot.store.set_setting("start_media_file_id", "start-photo")
+        calls = []
+
+        async def fail_media(chat_id, message_id, media_type, media, caption, reply_markup=None):
+            calls.append(("media", message_id))
+            raise TelegramApiError("editMessageMedia", "message is not modified")
+
+        async def caption(chat_id, message_id, text, reply_markup=None):
+            calls.append(("caption", message_id, text))
+            bot.telegram.sent.append({"chat_id": chat_id, "message_id": message_id, "caption": text, "reply_markup": reply_markup})
+            return True
+
+        bot.telegram.edit_message_media = fail_media
+        bot.telegram.edit_message_caption = caption
+        user = {"id": 1272}
+        asyncio.run(bot.process_update({"callback_query": {"id": "caption-fallback", "from": user, "data": "menu:settings", "message": {"chat": {"id": 1272}, "message_id": 77}}}))
+        self.assertEqual(calls[0], ("media", 77))
+        self.assertEqual(calls[1][0:2], ("caption", 77))
+        self.assertEqual(bot.telegram.sent[-1]["message_id"], 77)
+        self.assertIn("@InfoUchihaBot sozlamalari", bot.telegram.sent[-1]["caption"])
 
 if __name__ == "__main__":
     unittest.main()
