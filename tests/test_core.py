@@ -599,9 +599,11 @@ class AdminPanelAndApkTests(unittest.TestCase):
         user = {"id": 1257}
         asyncio.run(bot.process_update({"callback_query": {"id": "settings", "from": user, "data": "menu:settings", "message": {"chat": {"id": 1257}, "message_id": 10}}}))
         screen = bot.telegram.sent[-1]
-        self.assertIn("Chatbot sozlamalari", screen["text"])
+        self.assertTrue(screen["text"].startswith("@InfoUchihaBot sozlamalari ⚙️"))
+        self.assertIn("Qisqa qo‘llanma", screen["text"])
+        self.assertIn("Buyruqlar ruxsati", screen["text"])
         url_button = screen["reply_markup"]["inline_keyboard"][0][0]
-        self.assertEqual(url_button["text"], "🟢 Chatbotni sozlash")
+        self.assertEqual(url_button["text"], "🤝 Chatbotni sozlash")
         self.assertEqual(url_button["url"], "tg://settings/edit")
         self.assertEqual(screen["reply_markup"]["inline_keyboard"][-1][0]["callback_data"], "menu:home")
 

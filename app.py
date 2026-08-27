@@ -742,7 +742,17 @@ class BusinessAiBot:
             await self.telegram.edit_message_text(chat_id, message_id, "💳 Balansni to‘ldirish\n\nTo‘lov usulini tanlang:", self._topup_keyboard())
             return
         if data == "menu:settings":
-            await self.telegram.edit_message_text(chat_id, message_id, self._settings_text(user_id), self._settings_keyboard())
+            await self._render_media_or_text(chat_id, self._settings_text(user_id), self._settings_keyboard(), "start", message_id)
+            return
+        if data == "settings:commands":
+            await self._render_media_or_text(chat_id, "📗 Buyruqlar ruxsati\n\nQaysi buyruqni kim ishlatishini Telegram Business sozlamalaridan belgilaysiz.", self._settings_back_keyboard(), "start", message_id)
+            return
+        if data in {"settings:edit", "settings:deletions", "settings:apk", "settings:typing", "settings:read", "settings:currency"}:
+            await self._render_media_or_text(chat_id, "⚙️ Bu sozlama Telegram Business ulanishi orqali boshqariladi.\n\n`🤝 Chatbotni sozlash` tugmasini bosing.", self._settings_back_keyboard(), "start", message_id)
+            return
+        if data in {"settings:pro", "settings:business"}:
+            title = "🧙 Pro funksiyalar" if data == "settings:pro" else "😎 Biznes funksiyalar"
+            await self._render_media_or_text(chat_id, f"{title}\n\nVIP 💎 imkoniyatlari uchun quyidagi tugmani bosing.", {"inline_keyboard": [[{"text": "VIP 💎", "callback_data": "profile:vip"}], [{"text": "🔙 Sozlamalar", "callback_data": "menu:settings"}]]}, "start", message_id)
             return
         if data == "menu:auto_replies":
             await self.telegram.edit_message_text(chat_id, message_id, "💬 Avto javoblar ro‘yxati\n\nBu bo‘lim Chat Automation ulanishi orqali boshqariladi.", self._about_keyboard())
@@ -897,26 +907,37 @@ class BusinessAiBot:
         ]}
 
     def _settings_text(self, user_id: int | None) -> str:
-        return """⚙️ Chatbot sozlamalari
+        return """@InfoUchihaBot sozlamalari ⚙️
 
-🤖 Bepul sozlamalar:
+🤷‍♂️ Bepul sozlamalar:
 
-📝 Tahrirlanish: off
-🗑 O‘chirishlar: on
-🤖 APK o‘chirish: on
-••• Yozmoqda: on
-✉️ Avto javob berganda xabarni o‘qish: on
-💱 Valyuta miqdor hisoblash: on
+Qisqa qo‘llanma (ochish uchun bosing):
 
-📚 Buyruqlarni kim ishlata oladi"""
+💬 Avto javoblar — suhbatdosh yozgan so‘zga bot o‘zi javob beradi.
+✏️ Tahrirlanish — suhbatdosh xabarini tahrirlasa bildiriladi.
+🗑 O‘chirishlar — suhbatdosh xabarini o‘chirsa bildiriladi.
+🤖 APK o‘chirish — chatga tashlangan .apk fayl avtomatik o‘chadi.
+••• Yozmoqda — javobdan oldin «yozmoqda...» ko‘rinadi.
+✉️ Xabarni o‘qish — bot javob berganda xabar «o‘qilgan» bo‘ladi.
+💱 Valyuta hisoblash — «100 USD» deb yozilsa kursini hisoblab beradi.
+🟢 Buyruqlar ruxsati — qaysi buyruqni kim ishlatishini belgilaysiz."""
 
     @staticmethod
     def _settings_keyboard() -> dict[str, Any]:
         return {"inline_keyboard": [
-            [{"text": "🟢 Chatbotni sozlash", "url": "tg://settings/edit"}],
-            [{"text": "📚 Buyruqlarni kim ishlata oladi", "callback_data": "menu:commands"}],
+            [{"text": "🤝 Chatbotni sozlash", "url": "tg://settings/edit"}],
+            [{"text": "✏️ Tahrirlanish: off", "callback_data": "settings:edit"}, {"text": "🗑 O‘chirishlar: on", "callback_data": "settings:deletions"}],
+            [{"text": "🤖 APK o‘chirish: on", "callback_data": "settings:apk"}, {"text": "••• Yozmoqda: on", "callback_data": "settings:typing"}],
+            [{"text": "✉️ Avto javob berganda xabarni o‘qish: on", "callback_data": "settings:read"}],
+            [{"text": "💱 Valyuta miqdor hisoblash: on", "callback_data": "settings:currency"}],
+            [{"text": "📗 Buyruqlarni kim ishlata oladi", "callback_data": "settings:commands"}],
+            [{"text": "🧙 Pro funksiyalar", "callback_data": "settings:pro"}, {"text": "😎 Biznes funksiyalar", "callback_data": "settings:business"}],
             [{"text": "🔙 Orqaga", "callback_data": "menu:home"}],
         ]}
+
+    @staticmethod
+    def _settings_back_keyboard() -> dict[str, Any]:
+        return {"inline_keyboard": [[{"text": "🔙 Sozlamalar", "callback_data": "menu:settings"}], [{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}]]}
 
     def _get_setting(self, key: str, default: str = "") -> str:
         getter = getattr(self.store, "get_setting", None)
