@@ -662,6 +662,23 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertIn("Profil", bot.telegram.sent[-1]["text"])
         self.assertIn("VIP 💎", [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row])
 
+    def test_free_user_edit_delete_toggle_twice_switches_on_and_off(self) -> None:
+        bot = self._bot()
+        user = {"id": 1265}
+        base = {"chat": {"id": 1265}, "message_id": 10}
+        asyncio.run(bot.process_update({"callback_query": {"id": "edit-open", "from": user, "data": "settings:edit", "message": base}}))
+        for callback_id, data, key, label in (
+            ("edit-on", "settings:edit:toggle", "edit_notify_enabled", "Tahrirlangan xabarlarni bildirish"),
+            ("edit-off", "settings:edit:toggle", "edit_notify_enabled", "Tahrirlangan xabarlarni bildirish"),
+            ("delete-off", "settings:delete:toggle", "delete_notify_enabled", "O‘chirilgan xabarlarni bildirish"),
+            ("delete-on", "settings:delete:toggle", "delete_notify_enabled", "O‘chirilgan xabarlarni bildirish"),
+        ):
+            asyncio.run(bot.process_update({"callback_query": {"id": callback_id, "from": user, "data": data, "message": base}}))
+            expected = "1" if callback_id in {"edit-on", "delete-on"} else "0"
+            self.assertEqual(bot.store.get_user_setting(1265, key), expected)
+            state = "yoqildi 🔔" if expected == "1" else "o‘chirildi 🔕"
+            self.assertEqual(bot.telegram.callback_answers[-1], (callback_id, f"{label} {state}!", True))
+
     def test_all_settings_toggles_switch_and_show_confirmation(self) -> None:
         bot = self._bot()
         user = {"id": 1266}
