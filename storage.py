@@ -171,9 +171,22 @@ class JsonStore:
                     self._save()
                     return int(row.get("id", 0))
             new_id = max([int(row.get("id", 0)) for row in rows if isinstance(row, dict)] + [0]) + 1
-            rows.append({"id": new_id, "user_id": int(user_id), "trigger": trigger, "response": response, "enabled": True})
+            rows.append({"id": new_id, "user_id": int(user_id), "trigger": trigger, "response": response, "enabled": True, "reply_in_message": False, "reply_to_owner": False})
             self._save()
             return new_id
+
+    def set_auto_reply_option(self, user_id: int, record_id: int, option: str, enabled: bool) -> bool:
+        if option not in {"enabled", "reply_in_message", "reply_to_owner"}:
+            return False
+        with self.lock:
+            values = self.data.get("__auto_replies__", {})
+            rows = values.get(str(user_id), []) if isinstance(values, dict) else []
+            for row in rows if isinstance(rows, list) else []:
+                if isinstance(row, dict) and int(row.get("id", 0)) == int(record_id):
+                    row[option] = bool(enabled)
+                    self._save()
+                    return True
+            return False
 
     def get_auto_reply(self, user_id: int, record_id: int) -> dict[str, Any] | None:
         return next((row for row in self.list_auto_replies(user_id) if int(row.get("id", 0)) == int(record_id)), None)
@@ -193,7 +206,12 @@ class JsonStore:
 
     def find_auto_reply(self, user_id: int, trigger: str) -> dict[str, Any] | None:
         wanted = str(trigger).strip().casefold()
-        return next((row for row in self.list_auto_replies(user_id) if row.get("enabled", True) and str(row.get("trigger", "")).casefold() == wanted), None)
+        rows = [row for row in self.list_auto_replies(user_id) if row.get("enabled", True)]
+        exact = next((row for row in rows if str(row.get("trigger", "")).casefold() == wanted), None)
+        if exact:
+            return exact
+        containing = [row for row in rows if row.get("reply_in_message") and str(row.get("trigger", "")).casefold() in wanted]
+        return max(containing, key=lambda row: len(str(row.get("trigger", "")))) if containing else None
 
     def mark_owner_activity(self, key: str, timestamp: float | None = None) -> None:
         with self.lock:

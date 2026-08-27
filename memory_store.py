@@ -247,8 +247,18 @@ class MemoryStore:
                     return int(existing_id)
             new_id = self.next_auto_reply_id
             self.next_auto_reply_id += 1
-            bucket[new_id] = {"id": new_id, "user_id": int(user_id), "trigger": trigger, "response": response, "enabled": True}
+            bucket[new_id] = {"id": new_id, "user_id": int(user_id), "trigger": trigger, "response": response, "enabled": True, "reply_in_message": False, "reply_to_owner": False}
             return new_id
+
+    def set_auto_reply_option(self, user_id: int, record_id: int, option: str, enabled: bool) -> bool:
+        if option not in {"enabled", "reply_in_message", "reply_to_owner"}:
+            return False
+        with self.lock:
+            row = self.auto_replies.get(int(user_id), {}).get(int(record_id))
+            if not row:
+                return False
+            row[option] = bool(enabled)
+            return True
 
     def get_auto_reply(self, user_id: int, record_id: int) -> dict[str, object] | None:
         with self.lock:
@@ -262,9 +272,13 @@ class MemoryStore:
     def find_auto_reply(self, user_id: int, trigger: str) -> dict[str, object] | None:
         wanted = str(trigger).strip().casefold()
         with self.lock:
-            for row in self.auto_replies.get(int(user_id), {}).values():
-                if row.get("enabled", True) and str(row.get("trigger", "")).casefold() == wanted:
-                    return dict(row)
+            rows = [row for row in self.auto_replies.get(int(user_id), {}).values() if row.get("enabled", True)]
+            exact = next((row for row in rows if str(row.get("trigger", "")).casefold() == wanted), None)
+            if exact:
+                return dict(exact)
+            containing = [row for row in rows if row.get("reply_in_message") and str(row.get("trigger", "")).casefold() in wanted]
+            if containing:
+                return dict(max(containing, key=lambda row: len(str(row.get("trigger", "")))))
         return None
 
     def mark_owner_activity(self, key: str, timestamp: float | None = None) -> None:

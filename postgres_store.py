@@ -208,10 +208,18 @@ class PostgresStore:
                             trigger TEXT NOT NULL,
                             response TEXT NOT NULL,
                             enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                            reply_in_message BOOLEAN NOT NULL DEFAULT FALSE,
+                            reply_to_owner BOOLEAN NOT NULL DEFAULT FALSE,
                             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             UNIQUE (user_id, trigger)
                         )
                         """
+                    )
+                    cursor.execute(
+                        "ALTER TABLE telegram_auto_replies ADD COLUMN IF NOT EXISTS reply_in_message BOOLEAN NOT NULL DEFAULT FALSE"
+                    )
+                    cursor.execute(
+                        "ALTER TABLE telegram_auto_replies ADD COLUMN IF NOT EXISTS reply_to_owner BOOLEAN NOT NULL DEFAULT FALSE"
                     )
             self.__class__._schema_ready = True
 
@@ -589,11 +597,11 @@ class PostgresStore:
             with self._connection() as connection:
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        "SELECT id, user_id, trigger, response, enabled FROM telegram_auto_replies WHERE user_id = %s ORDER BY id LIMIT 100",
+                        "SELECT id, user_id, trigger, response, enabled, reply_in_message, reply_to_owner FROM telegram_auto_replies WHERE user_id = %s ORDER BY id LIMIT 100",
                         (user_id,),
                     )
                     rows = cursor.fetchall()
-            return [{"id": int(row[0]), "user_id": int(row[1]), "trigger": str(row[2]), "response": str(row[3]), "enabled": bool(row[4])} for row in rows]
+            return [{"id": int(row[0]), "user_id": int(row[1]), "trigger": str(row[2]), "response": str(row[3]), "enabled": bool(row[4]), "reply_in_message": bool(row[5]), "reply_to_owner": bool(row[6])} for row in rows]
         except Exception as exc:
             LOGGER.warning("Postgres auto-reply list read failed: %s", exc)
             return []
@@ -626,6 +634,19 @@ class PostgresStore:
             LOGGER.warning("Postgres auto-reply write failed: %s", exc)
             return 0
 
+    def set_auto_reply_option(self, user_id: int, record_id: int, option: str, enabled: bool) -> bool:
+        if option not in {"enabled", "reply_in_message", "reply_to_owner"}:
+            return False
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(f"UPDATE telegram_auto_replies SET {option} = %s, updated_at = NOW() WHERE id = %s AND user_id = %s", (bool(enabled), record_id, user_id))
+                    return cursor.rowcount > 0
+        except Exception as exc:
+            LOGGER.warning("Postgres auto-reply option update failed: %s", exc)
+            return False
+
     def get_auto_reply(self, user_id: int, record_id: int) -> dict[str, object] | None:
         return next((row for row in self.list_auto_replies(user_id) if int(row.get("id", 0)) == int(record_id)), None)
 
@@ -645,12 +666,16 @@ class PostgresStore:
             self._ensure_schema()
             with self._connection() as connection:
                 with connection.cursor() as cursor:
-                    cursor.execute(
-                        "SELECT id, user_id, trigger, response, enabled FROM telegram_auto_replies WHERE user_id = %s AND LOWER(trigger) = LOWER(%s) AND enabled = TRUE LIMIT 1",
-                        (user_id, trigger),
-                    )
+                    select_sql = "SELECT id, user_id, trigger, response, enabled, reply_in_message, reply_to_owner FROM telegram_auto_replies WHERE user_id = %s AND LOWER(trigger) = LOWER(%s) AND enabled = TRUE LIMIT 1"
+                    cursor.execute(select_sql, (user_id, trigger))
                     row = cursor.fetchone()
-            return {"id": int(row[0]), "user_id": int(row[1]), "trigger": str(row[2]), "response": str(row[3]), "enabled": bool(row[4])} if row else None
+                    if not row:
+                        cursor.execute(
+                            "SELECT id, user_id, trigger, response, enabled, reply_in_message, reply_to_owner FROM telegram_auto_replies WHERE user_id = %s AND enabled = TRUE AND reply_in_message = TRUE AND LOWER(%s) LIKE '%' || LOWER(trigger) || '%' ORDER BY LENGTH(trigger) DESC LIMIT 1",
+                            (user_id, trigger),
+                        )
+                        row = cursor.fetchone()
+            return {"id": int(row[0]), "user_id": int(row[1]), "trigger": str(row[2]), "response": str(row[3]), "enabled": bool(row[4]), "reply_in_message": bool(row[5]), "reply_to_owner": bool(row[6])} if row else None
         except Exception as exc:
             LOGGER.warning("Postgres auto-reply trigger lookup failed: %s", exc)
             return None

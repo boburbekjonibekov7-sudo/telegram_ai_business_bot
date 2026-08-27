@@ -1031,6 +1031,8 @@ class AutoReplyCrudTests(unittest.TestCase):
         asyncio.run(bot.process_update({"message": {"message_id": 13, "chat": {"id": 8645314130}, "from": owner, "text": "hello | Salom, xush kelibsiz!"}}))
         self.assertEqual(bot.store.get_auto_reply(8645314130, record_id)["response"], "Salom, xush kelibsiz!")
         asyncio.run(bot.process_update({"callback_query": {"id": "auto-delete", "from": owner, "data": f"auto:delete:{record_id}", "message": base}}))
+        self.assertIsNotNone(bot.store.get_auto_reply(8645314130, record_id))
+        asyncio.run(bot.process_update({"callback_query": {"id": "auto-delete-confirm", "from": owner, "data": f"auto:delete_confirm:{record_id}", "message": base}}))
         self.assertIsNone(bot.store.get_auto_reply(8645314130, record_id))
 
     def test_business_customer_gets_saved_auto_reply_and_permission_toggle_blocks_command(self) -> None:
@@ -1054,6 +1056,19 @@ class AutoReplyCrudTests(unittest.TestCase):
         asyncio.run(bot.process_update({"callback_query": {"id": "perm-on", "from": user, "data": "auto:toggle:ping", "message": base}}))
         self.assertEqual(bot.store.get_user_setting(1271, "auto_reply_ping_permission"), "all")
         self.assertEqual(bot.telegram.callback_answers[-1], ("perm-on", ".ping buyrug‘i: Hamma ✅", True))
+
+    def test_auto_reply_detail_toggles_and_exact_trigger_options(self) -> None:
+        bot = self._bot()
+        record_id = bot.store.upsert_auto_reply(8645314130, "salom", "Va alaykum!")
+        owner = {"id": 8645314130}
+        base = {"chat": {"id": 8645314130}, "message_id": 10}
+        asyncio.run(bot.process_update({"callback_query": {"id": "auto-view", "from": owner, "data": f"auto:view:{record_id}", "message": base}}))
+        self.assertIn("Trigger: salom", bot.telegram.sent[-1]["text"])
+        asyncio.run(bot.process_update({"callback_query": {"id": "auto-in-message", "from": owner, "data": f"auto:option:{record_id}:reply_in_message", "message": base}}))
+        self.assertTrue(bot.store.get_auto_reply(8645314130, record_id)["reply_in_message"])
+        incoming = {"message_id": 83, "business_connection_id": "bc-1", "chat": {"id": 9004}, "from": {"id": 1273}, "text": "salom, yaxshimisiz?"}
+        asyncio.run(bot.process_update({"business_message": incoming}))
+        self.assertEqual(bot.telegram.sent[-1]["text"], "Va alaykum!")
 
     def test_media_caption_fallback_keeps_same_message_id(self) -> None:
         bot = self._bot()

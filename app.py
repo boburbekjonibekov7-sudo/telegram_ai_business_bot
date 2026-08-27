@@ -52,7 +52,7 @@ COMMANDS_PAGE_2_TEXT = """🤖 Chatbot buyruqlari — davom:
 .dice6 — 🏀 yuborish!"""
 GUIDE_CONNECT_CAPTION = "🤖 Chatbotni ulash qo‘llanmasi"
 GUIDE_USAGE_CAPTION = "🤖 Chatbotdan foydalanish qo‘llanmasi"
-AUTO_REPLY_COMMANDS = ("help", "ping", "settings", "add", "list", "edit", "delete", "info", "type", "ai", "emoji", "dice")
+AUTO_REPLY_COMMANDS = ("help", "ping", "ai", "down", "music", "type", "emoji", "dice", "checklist", "info")
 VIP_FEATURES_TEXT = """📩 Avto javoblar: 100 ta
 🤖 AI avto javob (kunlik): 500 ta
 🧠 «.ai» savol (kunlik): 100 ta
@@ -623,7 +623,10 @@ class BusinessAiBot:
                     LOGGER.warning("Auto-reply trigger qidirilmadi: %s", exc)
                     custom_reply = None
                 if isinstance(custom_reply, dict):
-                    await self._send_chunks(chat_id, str(custom_reply.get("response") or ""), business_connection_id, message.get("message_id"))
+                    reply_to = message.get("message_id") if custom_reply.get("reply_in_message") else None
+                    await self._send_chunks(chat_id, str(custom_reply.get("response") or ""), business_connection_id, reply_to)
+                    if is_business and custom_reply.get("reply_to_owner") and isinstance(business_owner_id, int):
+                        await self._send_chunks(business_owner_id, f"📩 Avto javob yuborildi.\n\nTrigger: {custom_reply.get('trigger')}\nJavob: {custom_reply.get('response')}", None, None)
                     return
             if await self._handle_builtin_auto_command(message, text, chat_id, is_business, business_owner_id):
                 return
@@ -953,13 +956,41 @@ class BusinessAiBot:
         if data == "auto:permissions":
             await self._render_media_or_text(chat_id, self._auto_permissions_text(user_id), self._auto_permissions_keyboard(), "start", message_id)
             return
+        if data.startswith("auto:view:"):
+            record_id = self._parse_record_id(data)
+            record = self._get_auto_reply(user_id, record_id) if record_id is not None else None
+            if record:
+                await self._render_media_or_text(chat_id, self._auto_reply_detail_text(record), self._auto_reply_detail_keyboard(record), "start", message_id)
+            else:
+                await self.telegram.answer_callback_query(callback_id, "Avto javob topilmadi.", True)
+            return
         if data.startswith("auto:delete:"):
             record_id = self._parse_record_id(data)
-            if record_id is not None and isinstance(user_id, int):
-                deleted = self._delete_auto_reply(user_id, record_id)
-                notice = "✅ Avto javob o‘chirildi." if deleted else "Avto javob topilmadi."
-                await self.telegram.answer_callback_query(callback_id, notice, True)
-                await self._render_media_or_text(chat_id, self._auto_replies_text(user_id), self._auto_replies_keyboard(user_id), "start", message_id)
+            record = self._get_auto_reply(user_id, record_id) if record_id is not None else None
+            if record:
+                await self._render_media_or_text(chat_id, "🗑 Avto javobni o‘chirishni tasdiqlaysizmi?\n\n" + str(record.get("trigger") or ""), self._auto_delete_confirm_keyboard(record_id), "start", message_id)
+            else:
+                await self.telegram.answer_callback_query(callback_id, "Avto javob topilmadi.", True)
+            return
+        if data.startswith("auto:delete_confirm:"):
+            record_id = self._parse_record_id(data)
+            deleted = self._delete_auto_reply(user_id, record_id) if isinstance(user_id, int) and record_id is not None else False
+            notice = "✅ Avto javob o‘chirildi." if deleted else "Avto javob topilmadi."
+            await self.telegram.answer_callback_query(callback_id, notice, True)
+            await self._render_media_or_text(chat_id, self._auto_replies_text(user_id), self._auto_replies_keyboard(user_id), "start", message_id)
+            return
+        if data.startswith("auto:option:"):
+            parts = data.split(":")
+            record_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+            option = parts[3] if len(parts) > 3 else ""
+            record = self._get_auto_reply(user_id, record_id)
+            if record and option in {"enabled", "reply_in_message", "reply_to_owner"} and isinstance(user_id, int):
+                enabled = not bool(record.get(option, False))
+                setter = getattr(self.store, "set_auto_reply_option", None)
+                changed = bool(callable(setter) and setter(user_id, record_id, option, enabled))
+                await self.telegram.answer_callback_query(callback_id, ("✅ Holat yangilandi." if changed else "Holatni yangilab bo‘lmadi."), True)
+                record = self._get_auto_reply(user_id, record_id) or record
+                await self._render_media_or_text(chat_id, self._auto_reply_detail_text(record), self._auto_reply_detail_keyboard(record), "start", message_id)
             return
         if data.startswith("auto:edit:"):
             record_id = self._parse_record_id(data)
@@ -1453,9 +1484,10 @@ Qisqa qo‘llanma (ochish uchun bosing):
         for row in self._list_auto_replies(user_id)[:20]:
             record_id = int(row.get("id", 0))
             trigger = str(row.get("trigger", ""))[:28]
+            rows.append([{"text": f"📩 {trigger}", "callback_data": f"auto:view:{record_id}"}])
             rows.append([
-                {"text": f"✏️ {trigger}", "callback_data": f"auto:edit:{record_id}"},
-                {"text": "🗑", "callback_data": f"auto:delete:{record_id}"},
+                {"text": "✏️ Tahrirlash", "callback_data": f"auto:edit:{record_id}"},
+                {"text": "🗑 O‘chirish", "callback_data": f"auto:delete:{record_id}"},
             ])
         rows.append([{"text": "⚙️ Buyruqlar ruxsati", "callback_data": "auto:permissions"}])
         rows.append([{"text": "🔙 Orqaga", "callback_data": "menu:home"}])
@@ -1476,6 +1508,34 @@ Qisqa qo‘llanma (ochish uchun bosing):
     @staticmethod
     def _auto_reply_back_keyboard() -> dict[str, Any]:
         return {"inline_keyboard": [[{"text": "🔙 Avto javoblar ro‘yxati", "callback_data": "menu:auto_replies"}], [{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}]]}
+
+    @staticmethod
+    def _auto_delete_confirm_keyboard(record_id: int) -> dict[str, Any]:
+        return {"inline_keyboard": [[{"text": "✅ Ha, o‘chirish", "callback_data": f"auto:delete_confirm:{record_id}"}, {"text": "❌ Yo‘q", "callback_data": f"auto:view:{record_id}"}], [{"text": "🔙 Ro‘yxat", "callback_data": "menu:auto_replies"}]]}
+
+    @staticmethod
+    def _auto_reply_detail_text(record: dict[str, object]) -> str:
+        enabled = "on" if record.get("enabled", True) else "off"
+        in_message = "on" if record.get("reply_in_message", False) else "off"
+        to_owner = "on" if record.get("reply_to_owner", False) else "off"
+        return (f"💬 Avto javob\n\nSuhbatdosh: barcha suhbatdoshlar\nTrigger: {record.get('trigger', '')}\n"
+                f"Javob: {record.get('response', '')}\n\nAvto javob: {enabled}\n"
+                f"Xabar ichida mos bo‘lsa: {in_message}\nO‘zimga javob bersin: {to_owner}")
+
+    @staticmethod
+    def _auto_reply_detail_keyboard(record: dict[str, object]) -> dict[str, Any]:
+        record_id = int(record.get("id", 0))
+        state = "on" if record.get("enabled", True) else "off"
+        in_message = "on" if record.get("reply_in_message", False) else "off"
+        to_owner = "on" if record.get("reply_to_owner", False) else "off"
+        return {"inline_keyboard": [
+            [{"text": f"Avto javob: {state}", "callback_data": f"auto:option:{record_id}:enabled"}],
+            [{"text": f"Xabar ichida soz bo‘lsa: {in_message}", "callback_data": f"auto:option:{record_id}:reply_in_message"}],
+            [{"text": f"O‘zimga javob bersin: {to_owner}", "callback_data": f"auto:option:{record_id}:reply_to_owner"}],
+            [{"text": "✏️ Javobni tahrirlash", "callback_data": f"auto:edit:{record_id}"}],
+            [{"text": "🗑 Avto javobni o‘chirish", "callback_data": f"auto:delete:{record_id}"}],
+            [{"text": "🔙 Avto javoblar ro‘yxati", "callback_data": "menu:auto_replies"}],
+        ]}
 
     def _list_auto_replies(self, user_id: int | None) -> list[dict[str, object]]:
         if not isinstance(user_id, int):
@@ -1905,6 +1965,13 @@ Qisqa qo‘llanma (ochish uchun bosing):
             await self._send_chunks(chat_id, f"👥 Suhbatdosh: {who}\n{target}", connection_id, reply_to)
         elif command == "type":
             await self._send_chunks(chat_id, argument or "📝 Matn kiriting.", connection_id, reply_to)
+        elif command == "down":
+            await self._send_chunks(chat_id, "📥 .down uchun yuklanadigan havolani yuboring." if not argument else "📥 Havola qabul qilindi. Bu deploymentda avtomatik yuklash xizmati ulanmagan.", connection_id, reply_to)
+        elif command == "music":
+            await self._send_chunks(chat_id, "🎵 .music uchun musiqa nomi yoki havola yuboring. Bu deploymentda audio qidiruv xizmati ulanmagan.", connection_id, reply_to)
+        elif command == "checklist":
+            items = [item.strip() for item in argument.split(",") if item.strip()] if argument else []
+            await self._send_chunks(chat_id, "☑️ Checklist\n\n" + ("\n".join(f"☐ {item}" for item in items) if items else "☐ Bandlarni vergul bilan yuboring."), connection_id, reply_to)
         elif command == "ai":
             if not argument:
                 await self._send_chunks(chat_id, "🤖 .ai dan keyin savol yozing.", connection_id, reply_to)
