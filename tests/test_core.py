@@ -208,10 +208,28 @@ class AdminPanelAndApkTests(unittest.TestCase):
             self.invoice_links = []
             self.pre_checkout_answers = []
             self.forwarded = []
+            self.photos = []
+            self.videos = []
 
         async def send_message(self, **kwargs):
             self.sent.append(kwargs)
             return {"message_id": 10}
+
+        async def send_photo(self, chat_id, photo, caption=None, business_connection_id=None, reply_markup=None):
+            item = {"chat_id": chat_id, "photo": photo, "caption": caption, "reply_markup": reply_markup}
+            self.photos.append(item)
+            self.sent.append(item)
+            return {"message_id": 11}
+
+        async def send_video(self, chat_id, video, caption=None, business_connection_id=None, reply_markup=None):
+            item = {"chat_id": chat_id, "video": video, "caption": caption, "reply_markup": reply_markup}
+            self.videos.append(item)
+            self.sent.append(item)
+            return {"message_id": 12}
+
+        async def delete_message(self, chat_id, message_id):
+            self.deleted.append((chat_id, message_id))
+            return True
 
         async def forward_message(self, chat_id, from_chat_id, message_id):
             self.forwarded.append((chat_id, from_chat_id, message_id))
@@ -448,20 +466,21 @@ class AdminPanelAndApkTests(unittest.TestCase):
         bot = self._bot()
         asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1230}, "from": {"id": 1230}, "text": "/start"}}))
         start_text = bot.telegram.sent[-1]["text"]
-        self.assertIn("Salom!", start_text)
-        self.assertIn("VIP", start_text)
+        self.assertIn("Chatbot accountingizga ulangan", start_text)
         buttons = [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row]
-        self.assertIn("VIP 💎", buttons)
-        self.assertIn("Bot haqida 🤖", buttons)
+        self.assertIn("📚 Buyruqlar", buttons)
+        self.assertIn("🦉 Qo‘llanma", buttons)
         self.assertNotIn("/premium", start_text)
         self.assertNotIn("Manus", start_text)
         self.assertNotIn("promo", start_text.casefold())
         self.assertNotIn("Mangekyo", start_text)
 
-    def test_owner_start_uses_normal_ai_flow(self) -> None:
+    def test_owner_start_uses_same_universal_menu(self) -> None:
         bot = self._bot()
         asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 8645314130}, "from": {"id": 8645314130}, "text": "/start"}}))
-        self.assertEqual(bot.telegram.sent[-1]["text"], "AI javob")
+        buttons = [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row]
+        self.assertIn("📚 Buyruqlar", buttons)
+        self.assertIn("🦉 Qo‘llanma", buttons)
 
     def test_about_and_main_menu_callbacks_stay_in_one_message(self) -> None:
         bot = self._bot()
@@ -474,13 +493,71 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertNotIn("Statistika", bot.telegram.sent[-1]["text"])
         self.assertEqual(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"], "menu:home")
         asyncio.run(bot.process_update({"callback_query": {"id": "home-1", "from": user, "data": "menu:home", "message": {"chat": {"id": 1242}, "message_id": 10}}}))
-        self.assertIn("AI CHAT BOT", bot.telegram.sent[-1]["text"])
-        self.assertEqual(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["text"], "VIP 💎")
+        self.assertIn("Chatbot accountingizga ulangan", bot.telegram.sent[-1]["text"])
+        self.assertEqual(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["text"], "📚 Buyruqlar")
         home_message_count = len(bot.telegram.sent)
         asyncio.run(bot.process_update({"callback_query": {"id": "premium-1", "from": user, "data": "premium:status", "message": {"chat": {"id": 1242}, "message_id": 10}}}))
         self.assertEqual(len(bot.telegram.sent), home_message_count + 1)
         self.assertIn("VIP faol emas", bot.telegram.sent[-1]["text"])
         self.assertEqual(bot.telegram.sent[-1]["message_id"], 10)
+
+    def test_commands_and_guide_navigation(self) -> None:
+        bot = self._bot()
+        user = {"id": 1250}
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1250}, "from": user, "text": "/start"}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "commands", "from": user, "data": "menu:commands", "message": {"chat": {"id": 1250}, "message_id": 10}}}))
+        self.assertIn(".help", bot.telegram.sent[-1]["text"])
+        self.assertEqual(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"], "commands:next")
+        asyncio.run(bot.process_update({"callback_query": {"id": "commands-next", "from": user, "data": "commands:next", "message": {"chat": {"id": 1250}, "message_id": 10}}}))
+        self.assertIn(".emoji text", bot.telegram.sent[-1]["text"])
+        asyncio.run(bot.process_update({"callback_query": {"id": "commands-back", "from": user, "data": "commands:back", "message": {"chat": {"id": 1250}, "message_id": 10}}}))
+        self.assertIn(".help", bot.telegram.sent[-1]["text"])
+        asyncio.run(bot.process_update({"callback_query": {"id": "guide", "from": user, "data": "menu:guide", "message": {"chat": {"id": 1250}, "message_id": 10}}}))
+        self.assertIn("Chatbotni ulash qo‘llanmasi", bot.telegram.sent[-1]["text"])
+        self.assertIn("🦉 Foydalanish qo‘llanmasi", [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row])
+
+    def test_main_channel_username_is_used_in_guide_caption(self) -> None:
+        bot = self._bot()
+        bot.store.upsert_channel("-100999", "Asosiy", "ekspres", "main", False, True)
+        self.assertEqual(bot._main_channel_username(), "@ekspres")
+        self.assertIn("@ekspres", bot._guide_caption("Qo‘llanma"))
+
+    def test_owner_can_configure_start_photo_and_guide_video(self) -> None:
+        bot = self._bot()
+        owner = {"id": 8645314130}
+        asyncio.run(bot.process_update({"callback_query": {"id": "media-menu", "from": owner, "data": "owner:media", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "start-upload", "from": owner, "data": "owner:media:set:start", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 11, "chat": {"id": 8645314130}, "from": owner, "photo": [{"file_id": "small"}, {"file_id": "large"}]}}))
+        self.assertEqual(bot.store.get_setting("start_media_file_id"), "large")
+        asyncio.run(bot.process_update({"callback_query": {"id": "usage-upload", "from": owner, "data": "owner:media:set:usage_guide", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"message": {"message_id": 12, "chat": {"id": 8645314130}, "from": owner, "video": {"file_id": "usage-video"}}}))
+        self.assertEqual(bot.store.get_setting("usage_guide_video_file_id"), "usage-video")
+
+    def test_configured_guide_videos_are_sent_with_captions(self) -> None:
+        bot = self._bot()
+        bot.store.set_setting("connect_guide_video_file_id", "connect-video")
+        bot.store.set_setting("usage_guide_video_file_id", "usage-video")
+        user = {"id": 1253}
+        asyncio.run(bot.process_update({"callback_query": {"id": "guide-video", "from": user, "data": "menu:guide", "message": {"chat": {"id": 1253}, "message_id": 10}}}))
+        self.assertEqual(bot.telegram.videos[-1]["video"], "connect-video")
+        self.assertIn("Chatbotni ulash qo‘llanmasi", bot.telegram.videos[-1]["caption"])
+        asyncio.run(bot.process_update({"callback_query": {"id": "usage-video", "from": user, "data": "guide:usage", "message": {"chat": {"id": 1253}, "message_id": 10}}}))
+        self.assertEqual(bot.telegram.videos[-1]["video"], "usage-video")
+        self.assertIn("Chatbotdan foydalanish qo‘llanmasi", bot.telegram.videos[-1]["caption"])
+
+    def test_non_owner_cannot_open_or_upload_menu_media(self) -> None:
+        bot = self._bot()
+        user = {"id": 1251}
+        asyncio.run(bot.process_update({"callback_query": {"id": "media-forged", "from": user, "data": "owner:media", "message": {"chat": {"id": 1251}, "message_id": 10}}}))
+        self.assertEqual(bot.telegram.callback_answers[-1], ("media-forged", "Siz admin emassiz.", True))
+        self.assertIsNone(bot.store.get_admin_session(1251))
+
+    def test_configured_media_is_sent_with_file_id(self) -> None:
+        bot = self._bot()
+        bot.store.set_setting("start_media_file_id", "start-photo")
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1252}, "from": {"id": 1252}, "text": "/start"}}))
+        self.assertEqual(bot.telegram.photos[-1]["photo"], "start-photo")
+        self.assertIn("📚 Buyruqlar", [button["text"] for row in bot.telegram.photos[-1]["reply_markup"]["inline_keyboard"] for button in row])
 
     def test_required_subscription_keyboard_is_numbered(self) -> None:
         bot = self._bot()
@@ -607,6 +684,22 @@ class ManualPauseFlowTests(unittest.TestCase):
 
 
 class TelegramPayloadTests(unittest.TestCase):
+    def test_photo_and_video_send_payloads(self) -> None:
+        bot = TelegramBotApi("dummy")
+        captured = []
+
+        async def fake_call(method, payload):
+            captured.append((method, payload))
+            return {"message_id": 1}
+
+        bot.call = fake_call  # type: ignore[method-assign]
+        asyncio.run(bot.send_photo(1, "photo-file", "caption", reply_markup={"inline_keyboard": []}))
+        asyncio.run(bot.send_video(1, "video-file", "caption", reply_markup={"inline_keyboard": []}))
+        self.assertEqual(captured[0][0], "sendPhoto")
+        self.assertEqual(captured[0][1]["photo"], "photo-file")
+        self.assertEqual(captured[1][0], "sendVideo")
+        self.assertEqual(captured[1][1]["video"], "video-file")
+
     def test_business_send_payload_contains_connection_id(self) -> None:
         bot = TelegramBotApi("dummy")
         captured = {}

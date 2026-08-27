@@ -19,7 +19,7 @@ class JsonStore:
 
     def _load(self) -> dict[str, Any]:
         if not self.path.exists():
-            return {"__role__": "", "__manual_pause_enabled__": True}
+            return {"__role__": "", "__manual_pause_enabled__": True, "__settings__": {}}
         try:
             loaded: Any = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
@@ -27,11 +27,12 @@ class JsonStore:
                     "__role__": str(loaded.get("__role__", "")),
                     "__owner_activity__": loaded.get("__owner_activity__", {}) if isinstance(loaded.get("__owner_activity__", {}), dict) else {},
                     "__manual_pause_enabled__": loaded.get("__manual_pause_enabled__", True) is not False,
+                    "__settings__": loaded.get("__settings__", {}) if isinstance(loaded.get("__settings__", {}), dict) else {},
                 }
                 result.update({
                     str(key): value
                     for key, value in loaded.items()
-                    if key not in {"__role__", "__owner_activity__", "__manual_pause_enabled__"} and isinstance(value, list)
+                    if key not in {"__role__", "__owner_activity__", "__manual_pause_enabled__", "__settings__"} and isinstance(value, list)
                 })
                 return result
         except (OSError, json.JSONDecodeError):
@@ -41,7 +42,7 @@ class JsonStore:
                 self.path.replace(backup)
             except OSError:
                 pass
-        return {"__role__": "", "__manual_pause_enabled__": True}
+        return {"__role__": "", "__manual_pause_enabled__": True, "__settings__": {}}
 
     def _save(self) -> None:
         temporary = self.path.with_suffix(".tmp")
@@ -73,6 +74,25 @@ class JsonStore:
     def get_role(self, default: str) -> str:
         with self.lock:
             return str(self.data.get("__role__") or default)
+
+    def get_setting(self, key: str, default: str = "") -> str:
+        with self.lock:
+            settings = self.data.get("__settings__", {})
+            return str(settings.get(key, default)) if isinstance(settings, dict) else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self.lock:
+            settings = self.data.setdefault("__settings__", {})
+            if isinstance(settings, dict):
+                settings[str(key)] = str(value)
+            self._save()
+
+    def delete_setting(self, key: str) -> None:
+        with self.lock:
+            settings = self.data.get("__settings__", {})
+            if isinstance(settings, dict):
+                settings.pop(str(key), None)
+            self._save()
 
     def set_role(self, role: str) -> None:
         with self.lock:

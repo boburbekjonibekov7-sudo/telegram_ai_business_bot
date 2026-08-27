@@ -235,6 +235,42 @@ class TelegramBotApi:
         })
         return result if isinstance(result, dict) else {}
 
+    async def send_photo(
+        self,
+        chat_id: int | str,
+        photo: str,
+        caption: str | None = None,
+        business_connection_id: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"chat_id": chat_id, "photo": photo}
+        if caption:
+            payload["caption"] = caption
+        if business_connection_id:
+            payload["business_connection_id"] = business_connection_id
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        result = await self.call("sendPhoto", payload)
+        return result if isinstance(result, dict) else {}
+
+    async def send_video(
+        self,
+        chat_id: int | str,
+        video: str,
+        caption: str | None = None,
+        business_connection_id: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"chat_id": chat_id, "video": video}
+        if caption:
+            payload["caption"] = caption
+        if business_connection_id:
+            payload["business_connection_id"] = business_connection_id
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        result = await self.call("sendVideo", payload)
+        return result if isinstance(result, dict) else {}
+
     async def send_message(
         self,
         chat_id: int | str,

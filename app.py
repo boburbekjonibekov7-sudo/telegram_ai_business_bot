@@ -24,9 +24,47 @@ STAR_SUBSCRIPTION_PAYLOAD = "premium_monthly_100_stars_v1"
 MANGEKYO_PROMO_CODE = "mangenkyo sharingan"
 MANGEKYO_PROMO_REPLY = "Sharingan faollashdi!\nEndi siz botdan 1 oy bepul foydalanasiz!!!\n/start /start /start"
 PROMO_SILENT_REPLY = "So‘rov bajarilmadi."
-START_MENU_TEXT = "Salom! Telegram Business chatlaringizga avtomatik javob beruvchi AI CHAT BOT man✨\n\nBotdan to‘liq foydalanish uchun VIP 💎 oling"
+START_MENU_TEXT = "🤖 Salom Boburbek 🫡\n\n💬 Chatbot accountingizga ulangan — sizga yozadigan odamlarga avto javob beradi.\n\n❓ Quyidagi tugmalar orqali buyruqlar, avto javob va sozlamalarni boshqaring ⚙️"
+COMMANDS_PAGE_1_TEXT = """🤖 Chatbot buyruqlari:
+
+.help — 📖 ChatBot dan foydalanish qo‘llanmasi!
+.ping — 🚀 ChatBot tezligi!
+.settings — ⚙️ ChatBot sozlamalari!
+.add — ➕ Avto javob qo‘shish!
+.list — 💬 Avto javoblarni ko‘rish!
+.info — 👥 Ikki tomon haqida ma’lumot!
+.type text — 📝 Harfma-harf yozish animatsiyasi!
+.ai text — 🤖 AI ga savol berish!
+.send matn @kim 5 — 📤 Accountingizdan xabar yuborish!
+.soat — ⏱ Profilga nikga soat qo‘yish!
+.online — 🟢 24 soat online rejimini yoqish!
+.offline — 🟢 24 soat online rejimini o‘chirish!"""
+COMMANDS_PAGE_2_TEXT = """🤖 Chatbot buyruqlari — davom:
+
+.emoji text — Matnni RANDOM premium emoji qilish!
+.dice — 🎟 🎯 🍭 🎰 ⚽ 🏀 har safar har xil yuboriladi!
+.dice1 — 🎟 yuborish!
+.dice2 — 🎯 yuborish!
+.dice3 — 🍭 yuborish!
+.dice4 — 🎰 yuborish!
+.dice5 — ⚽ yuborish!
+.dice6 — 🏀 yuborish!"""
+GUIDE_CONNECT_CAPTION = "🤖 Chatbotni ulash qo‘llanmasi"
+GUIDE_USAGE_CAPTION = "🤖 Chatbotdan foydalanish qo‘llanmasi"
 BOT_ABOUT_TEXT = "Bot haqida 🤖\n\n• Telegram Business va Chat Automation chatlariga AI javob beradi.\n• Business chatda yuborilgan APK fayllarni avtomatik o‘chirishni qo‘llab-quvvatlaydi.\n\nVIP 💎 imkoniyatlari:\n• Oyiga 100 Telegram Stars evaziga 30 kunlik access.\n• Shaxsiy AI chat va shaxsiy rol sozlamalari.\n• Kengaytirilgan admin panel va pause boshqaruvi.\n• To‘lovdan keyin VIP funksiyalar avtomatik ochiladi."
 VIP_LABEL = "VIP"
+MEDIA_SLOTS = {
+    "start": ("start_media_file_id", "start_media_type", "Start rasmi", "photo"),
+    "commands": ("commands_media_file_id", "commands_media_type", "Buyruqlar rasmi", "photo"),
+    "connect_guide": ("connect_guide_video_file_id", "connect_guide_media_type", "Chatbotni ulash videosi", "video"),
+    "usage_guide": ("usage_guide_video_file_id", "usage_guide_media_type", "Foydalanish qo‘llanmasi videosi", "video"),
+}
+MEDIA_SESSION_SLOTS = {
+    "media:set:start": "start",
+    "media:set:commands": "commands",
+    "media:set:connect_guide": "connect_guide",
+    "media:set:usage_guide": "usage_guide",
+}
 
 
 
@@ -297,15 +335,13 @@ class BusinessAiBot:
 
         sender_id = self._user_id(message)
         if command == "/start":
-            if sender_id == OWNER_ADMIN_ID:
-                return False
             if sender_id is not None:
                 marker = getattr(self.store, "mark_started", None)
                 if callable(marker):
                     marker(sender_id)
             if not await self._ensure_subscription_or_prompt(chat_id, sender_id, reply_to):
                 return True
-            await self._send_chunks(chat_id, START_MENU_TEXT, None, reply_to, self._main_menu_keyboard(self._has_premium(sender_id)))
+            await self._send_start_screen(chat_id, reply_to)
             return True
 
         if sender_id != OWNER_ADMIN_ID and not await self._ensure_subscription_or_prompt(chat_id, sender_id, reply_to):
@@ -404,7 +440,7 @@ class BusinessAiBot:
 
         text = self._message_text(message)
         owner_session = self._owner_session(user_id) if not is_business and user_id == OWNER_ADMIN_ID else None
-        if not text and not (owner_session and owner_session.get("state") == "broadcast_forward"):
+        if not text and not (owner_session and owner_session.get("state") in {"broadcast_forward", "media_upload"}):
             return
         if not is_business and await self._handle_admin_command(message, text, chat_id):
             return
@@ -518,7 +554,8 @@ class BusinessAiBot:
         if data == "subscription:check":
             await self.telegram.answer_callback_query(callback_id)
             if await self._is_subscription_satisfied(user_id):
-                await self._edit_owner_screen(chat_id, message_id, START_MENU_TEXT, self._main_menu_keyboard(self._has_premium(user_id)))
+                if isinstance(chat_id, int):
+                    await self._send_start_screen(chat_id, edit_message_id=message_id if isinstance(message_id, int) else None)
             else:
                 channels = self._required_channels()
                 await self._edit_owner_screen(chat_id, message_id, self._subscription_gate_text(channels), self._subscription_gate_keyboard(channels))
@@ -584,6 +621,26 @@ class BusinessAiBot:
         if data == "owner:broadcast":
             await self._edit_owner_screen(chat_id, message_id, "✉️ Xabar yuborish\n\nKimga yuborishni tanlang:", self._owner_broadcast_keyboard())
             return
+        if data == "owner:media":
+            await self._edit_owner_screen(chat_id, message_id, self._owner_media_text(), self._owner_media_keyboard())
+            return
+        if data.startswith("owner:media:set:"):
+            slot = data.rsplit(":", 1)[-1]
+            if slot not in MEDIA_SLOTS:
+                return
+            label = MEDIA_SLOTS[slot][2]
+            expected = "rasm" if MEDIA_SLOTS[slot][3] == "photo" else "video"
+            self._set_owner_session(user_id, "media_upload", {"slot": slot})
+            await self._edit_owner_screen(chat_id, message_id, f"🖼 {label}\n\n{expected.title()} yuboring.\n\nBekor qilish: /cancel", self._owner_media_keyboard())
+            return
+        if data.startswith("owner:media:remove:"):
+            slot = data.rsplit(":", 1)[-1]
+            config = MEDIA_SLOTS.get(slot)
+            if config:
+                self._delete_setting(config[0])
+                self._delete_setting(config[1])
+            await self._edit_owner_screen(chat_id, message_id, f"✅ {config[2] if config else 'Media'} o‘chirildi.", self._owner_media_keyboard())
+            return
         if data == "broadcast:one":
             self._set_owner_session(user_id, "broadcast_one_id")
             await self._edit_owner_screen(chat_id, message_id, "👤 Bitta userga\n\nTelegram user ID sini yuboring:", self._owner_broadcast_keyboard())
@@ -638,7 +695,29 @@ class BusinessAiBot:
                 await self._edit_owner_screen(chat_id, message_id, "↗️ Forward qilinadigan xabarni shu chatga yuboring yoki forward qiling.\n\nBekor qilish: /cancel", self._owner_broadcast_type_keyboard(target, extra.get("chat_ids", [])))
             return
         if data == "menu:home":
-            await self.telegram.edit_message_text(chat_id, message_id, START_MENU_TEXT, self._main_menu_keyboard(self._has_premium(user_id)))
+            await self._send_start_screen(chat_id, edit_message_id=message_id)
+            return
+        if data == "menu:commands":
+            await self._render_media_or_text(chat_id, COMMANDS_PAGE_1_TEXT, self._commands_page_1_keyboard(), "commands", message_id)
+            return
+        if data == "commands:next":
+            await self._render_media_or_text(chat_id, COMMANDS_PAGE_2_TEXT, self._commands_page_2_keyboard(), "commands", message_id)
+            return
+        if data == "commands:back":
+            await self._render_media_or_text(chat_id, COMMANDS_PAGE_1_TEXT, self._commands_page_1_keyboard(), "commands", message_id)
+            return
+        if data == "menu:guide":
+            await self._render_media_or_text(chat_id, self._guide_caption(GUIDE_CONNECT_CAPTION), self._guide_keyboard(), "connect_guide", message_id)
+            return
+        if data == "guide:home":
+            await self._render_media_or_text(chat_id, self._guide_caption(GUIDE_CONNECT_CAPTION), self._guide_keyboard(), "connect_guide", message_id)
+            return
+        if data == "guide:usage":
+            await self._render_media_or_text(chat_id, self._guide_caption(GUIDE_USAGE_CAPTION), self._guide_usage_keyboard(), "usage_guide", message_id)
+            return
+        if data in {"menu:profile", "menu:settings", "menu:auto_replies"}:
+            labels = {"menu:profile": "👤 Profilim", "menu:settings": "⚙️ Sozlamalar", "menu:auto_replies": "💬 Avto javoblar ro‘yxati"}
+            await self.telegram.edit_message_text(chat_id, message_id, f"{labels[data]}\n\nBu bo‘lim Chat Automation ulanishi orqali boshqariladi.", self._about_keyboard())
             return
         if data == "menu:about":
             await self.telegram.edit_message_text(chat_id, message_id, BOT_ABOUT_TEXT, self._about_keyboard())
@@ -760,11 +839,135 @@ class BusinessAiBot:
         except TelegramApiError:
             await self._send_chunks(chat_id, text, None, None, markup)
 
+    def _get_setting(self, key: str, default: str = "") -> str:
+        getter = getattr(self.store, "get_setting", None)
+        if not callable(getter):
+            return default
+        try:
+            return str(getter(key, default) or default)
+        except Exception as exc:
+            LOGGER.warning("Setting o‘qilmadi key=%s: %s", key, exc)
+            return default
+
+    def _set_setting(self, key: str, value: str) -> None:
+        setter = getattr(self.store, "set_setting", None)
+        if callable(setter):
+            setter(key, value)
+
+    def _delete_setting(self, key: str) -> None:
+        deleter = getattr(self.store, "delete_setting", None)
+        if callable(deleter):
+            deleter(key)
+
+    def _media_config(self, slot: str) -> tuple[str, str] | None:
+        config = MEDIA_SLOTS.get(slot)
+        if not config:
+            return None
+        file_key, type_key, _label, default_type = config
+        file_id = self._get_setting(file_key).strip()
+        if not file_id:
+            return None
+        return file_id, self._get_setting(type_key, default_type).strip() or default_type
+
+    def _main_channel_username(self) -> str:
+        getter = getattr(self.store, "list_channels", None)
+        channels = getter() if callable(getter) else []
+        for channel in channels:
+            if isinstance(channel, dict) and channel.get("is_main") is True:
+                username = str(channel.get("username") or "").strip()
+                if username:
+                    return username if username.startswith("@") else f"@{username}"
+        return "—"
+
+    def _guide_caption(self, base: str) -> str:
+        return f"{base}\n\n📣 Kanalimiz: {self._main_channel_username()}"
+
     def _main_menu_keyboard(self, premium_active: bool = False) -> dict[str, Any]:
         return {"inline_keyboard": [
-            [{"text": "VIP 💎", "callback_data": "premium:status"}],
-            [{"text": "Bot haqida 🤖", "callback_data": "menu:about"}],
+            [{"text": "📚 Buyruqlar", "callback_data": "menu:commands"}, {"text": "🦉 Qo‘llanma", "callback_data": "menu:guide"}],
+            [{"text": "👤 Profilim", "callback_data": "menu:profile"}, {"text": "⚙️ Sozlamalar", "callback_data": "menu:settings"}],
+            [{"text": "💬 Avto javoblar ro‘yxati", "callback_data": "menu:auto_replies"}],
         ]}
+
+    @staticmethod
+    def _commands_page_1_keyboard() -> dict[str, Any]:
+        return {"inline_keyboard": [
+            [{"text": "➡️ Davomi", "callback_data": "commands:next"}],
+            [{"text": "🔙 Orqaga", "callback_data": "menu:home"}],
+        ]}
+
+    @staticmethod
+    def _commands_page_2_keyboard() -> dict[str, Any]:
+        return {"inline_keyboard": [
+            [{"text": "⬅️ Avvalgi sahifa", "callback_data": "commands:back"}],
+            [{"text": "🔙 Orqaga", "callback_data": "menu:home"}],
+        ]}
+
+    @staticmethod
+    def _guide_keyboard() -> dict[str, Any]:
+        return {"inline_keyboard": [
+            [{"text": "🦉 Foydalanish qo‘llanmasi", "callback_data": "guide:usage"}],
+            [{"text": "🔙 Orqaga", "callback_data": "menu:home"}],
+        ]}
+
+    @staticmethod
+    def _guide_usage_keyboard() -> dict[str, Any]:
+        return {"inline_keyboard": [
+            [{"text": "🔙 Qo‘llanma", "callback_data": "guide:home"}],
+        ]}
+
+    async def _render_media_or_text(
+        self,
+        chat_id: int,
+        text: str,
+        markup: dict[str, Any],
+        slot: str | None = None,
+        edit_message_id: int | None = None,
+    ) -> None:
+        media = self._media_config(slot) if slot else None
+        if media:
+            file_id, media_type = media
+            try:
+                if media_type == "video":
+                    await self.telegram.send_video(chat_id, file_id, text, reply_markup=markup)
+                else:
+                    await self.telegram.send_photo(chat_id, file_id, text, reply_markup=markup)
+                if edit_message_id is not None:
+                    try:
+                        await self.telegram.delete_message(chat_id, edit_message_id)
+                    except TelegramApiError:
+                        pass
+                return
+            except TelegramApiError as exc:
+                LOGGER.warning("Konfiguratsiya qilingan media yuborilmadi slot=%s: %s", slot, exc)
+        if edit_message_id is not None:
+            try:
+                await self.telegram.edit_message_text(chat_id, edit_message_id, text, markup)
+                return
+            except TelegramApiError:
+                pass
+        await self._send_chunks(chat_id, text, None, None, markup)
+
+    async def _send_start_screen(self, chat_id: int, reply_to: int | None = None, edit_message_id: int | None = None) -> None:
+        media = self._media_config("start")
+        if media:
+            try:
+                await self.telegram.send_photo(chat_id, media[0], START_MENU_TEXT, reply_markup=self._main_menu_keyboard())
+                if edit_message_id is not None:
+                    try:
+                        await self.telegram.delete_message(chat_id, edit_message_id)
+                    except TelegramApiError:
+                        pass
+                return
+            except TelegramApiError as exc:
+                LOGGER.warning("Start rasmi yuborilmadi: %s", exc)
+        if edit_message_id is not None:
+            try:
+                await self.telegram.edit_message_text(chat_id, edit_message_id, START_MENU_TEXT, self._main_menu_keyboard())
+                return
+            except TelegramApiError:
+                pass
+        await self._send_chunks(chat_id, START_MENU_TEXT, None, reply_to, self._main_menu_keyboard())
 
     @staticmethod
     def _about_keyboard() -> dict[str, Any]:
@@ -896,6 +1099,7 @@ class BusinessAiBot:
                 [{"text": "💎 VIP boshqaruvi", "callback_data": "owner:vip"}],
                 [{"text": "📢 Kanal boshqaruvi", "callback_data": "owner:channels"}],
                 [{"text": "✉️ Xabar yuborish", "callback_data": "owner:broadcast"}],
+                [{"text": "🖼 Menyu media sozlamalari", "callback_data": "owner:media"}],
             ])
         if include_main_menu:
             rows.append([{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}])
@@ -1042,6 +1246,33 @@ class BusinessAiBot:
         if text.casefold() in {"bekor", "/cancel"}:
             self._clear_owner_session(user_id)
             await self._send_chunks(chat_id, "✅ Amal bekor qilindi.", None, reply_to, self._admin_panel_keyboard(include_statistics=user_id == OWNER_ADMIN_ID, include_main_menu=True, user_id=user_id, include_owner_tools=user_id == OWNER_ADMIN_ID))
+            return True
+        if state == "media_upload":
+            slot = str(data.get("slot") or "")
+            config = MEDIA_SLOTS.get(slot)
+            expected_type = config[3] if config else ""
+            file_id = ""
+            media_type = ""
+            if isinstance(message.get("photo"), list) and message.get("photo"):
+                photos = [item for item in message["photo"] if isinstance(item, dict) and item.get("file_id")]
+                if photos:
+                    file_id = str(photos[-1]["file_id"])
+                    media_type = "photo"
+            elif isinstance(message.get("video"), dict) and message["video"].get("file_id"):
+                file_id = str(message["video"]["file_id"])
+                media_type = "video"
+            if not config or not file_id:
+                await self._send_chunks(chat_id, "❌ Rasm yoki video yuboring. Amalni bekor qilish: /cancel", None, reply_to, self._owner_media_keyboard())
+                return True
+            if media_type != expected_type:
+                expected_label = "rasm" if expected_type == "photo" else "video"
+                await self._send_chunks(chat_id, f"❌ Bu bo‘lim uchun {expected_label} yuborish kerak. Amalni bekor qilish: /cancel", None, reply_to, self._owner_media_keyboard())
+                return True
+            file_key, type_key, label, _ = config
+            self._set_setting(file_key, file_id)
+            self._set_setting(type_key, media_type)
+            self._clear_owner_session(user_id)
+            await self._send_chunks(chat_id, f"✅ {label} saqlandi.", None, reply_to, self._owner_media_keyboard())
             return True
         if state == "vip_grant_id":
             try:
@@ -1264,6 +1495,22 @@ class BusinessAiBot:
             rows.append([{"text": f"{mark} {label}", "callback_data": f"broadcast:toggle:{channel_id}"}])
         rows.append([{ "text": "🚀 Tanlanganlarga yuborish", "callback_data": "broadcast:send_selected"}])
         rows.append([{ "text": "🔙 Xabar yuborish", "callback_data": "owner:broadcast"}])
+        return {"inline_keyboard": rows}
+
+    def _owner_media_text(self) -> str:
+        lines = ["🖼 Menyu media sozlamalari\n", "Start va Buyruqlar uchun rasm, Qo‘llanma bo‘limlari uchun video yuboring."]
+        for slot, (_file_key, _type_key, label, _expected) in MEDIA_SLOTS.items():
+            state = "✅ sozlangan" if self._media_config(slot) else "— sozlanmagan"
+            lines.append(f"\n{label}: {state}")
+        return "".join(lines)
+
+    def _owner_media_keyboard(self) -> dict[str, Any]:
+        rows: list[list[dict[str, str]]] = []
+        for slot, (_file_key, _type_key, label, _expected) in MEDIA_SLOTS.items():
+            rows.append([{"text": f"📤 {label}", "callback_data": f"owner:media:set:{slot}"}])
+            if self._media_config(slot):
+                rows.append([{"text": f"🗑 {label}ni o‘chirish", "callback_data": f"owner:media:remove:{slot}"}])
+        rows.append([{"text": "🔙 Admin panel", "callback_data": "admin:home"}])
         return {"inline_keyboard": rows}
 
     async def _edit_owner_screen(self, chat_id: int, message_id: int, text: str, markup: dict[str, Any]) -> None:

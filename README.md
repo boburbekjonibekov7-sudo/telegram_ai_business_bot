@@ -159,3 +159,17 @@ Xabar yuborish bo‘limi bitta userga, barcha boshlangan userlarga, faol VIP use
 Oddiy va VIP user `/start` yuborganda, required sifatida belgilangan kanallar bo‘lsa, bot avval kanal obunasi yoki join request yuborishni so‘raydi. Oyna matni `Botdan foydalanish uchun quyidagi kanal(lar)ga obuna yoki zayavka tashlang va Tekshirish ✅ tugmasini bosing!` bo‘ladi. Har bir kanal alohida `💠 1-kanal`, `💠 2-kanal` kabi inline URL tugmasida chiqadi va pastida `Tekshirish ✅` tugmasi turadi.
 
 User kanalga oddiy a’zo bo‘lsa yoki join request yuborgan bo‘lsa, tekshiruv muvaffaqiyatli hisoblanadi; kanal administratori join requestni qo‘lda tasdiqlashi shart emas. Buning uchun bot required channel’da join requestlarni ko‘ra oladigan administrator huquqiga ega bo‘lishi kerak. Obuna yoki request tasdiqlanmaguncha start menyusi, VIP va boshqa private funksiyalar ochilmaydi.
+
+## Universal menyu va qo‘llanmalar
+
+`/start` buyrug‘i owner, oddiy user va VIP user uchun bir xil universal menyuni ko‘rsatadi. Menyuda `📚 Buyruqlar`, `🦉 Qo‘llanma`, `👤 Profilim`, `⚙️ Sozlamalar` va `💬 Avto javoblar ro‘yxati` bo‘limlari mavjud. `Buyruqlar` ikki sahifali bo‘lib, sahifalar orasida `Davomi`, `Avvalgi sahifa` va `Orqaga` tugmalari ishlaydi.
+
+`Qo‘llanma` bo‘limida Chatbotni ulash videosi va `Foydalanish qo‘llanmasi` tugmasi mavjud. Ikkinchi tugma Chatbotdan foydalanish videosini ochadi. Har bir qo‘llanma ekranida orqaga qaytish tugmasi bor. Asosiy kanal `is_main` sifatida saqlangan bo‘lsa, qo‘llanma captionida `Kanalimiz: @username` avtomatik ko‘rsatiladi.
+
+## Owner-only menyu media sozlamalari
+
+Admin panelidagi `🖼 Menyu media sozlamalari` bo‘limi faqat hardcoded owner ID `8645314130` uchun ko‘rinadi. Bu bo‘limdan start rasmi, Buyruqlar rasmi, Chatbotni ulash videosi va Chatbotdan foydalanish videosini alohida yuklash, almashtirish yoki o‘chirish mumkin. Rasm yoki video botning shaxsiy chatiga yuboriladi; bot Telegram bergan `file_id` qiymatini Neon’dagi `telegram_settings` jadvalida saqlaydi va faylning o‘zini bazaga yozmaydi.
+
+Media sozlamalari mavjud bo‘lmasa, bot avtomatik ravishda matnli fallback ekranini ko‘rsatadi. VIP va oddiy userlar bu admin tugmasini ko‘rmaydi; `owner:media:*` callbacklari qo‘lda yuborilganda ham authorization tekshiruvidan o‘tmaydi. VIP boshqaruvi, majburiy va umumiy kanal boshqaruvi hamda xabar yuborish bo‘limlari ham xuddi shu tarzda faqat `8645314130` uchun yopiq.
+
+Media yuklash tartibi: `/admin` → `🖼 Menyu media sozlamalari` → kerakli media turi → mos rasm yoki video yuborish. Rasm bo‘limlariga photo, video bo‘limlariga video yuborish kerak; jarayonni `/cancel` bilan bekor qilish mumkin.

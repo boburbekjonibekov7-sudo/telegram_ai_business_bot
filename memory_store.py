@@ -26,6 +26,7 @@ class MemoryStore:
         self.business_profiles: dict[str, dict[str, int | str]] = {}
         self.channels: dict[str, dict[str, str]] = {}
         self.admin_sessions: dict[int, dict[str, object]] = {}
+        self.settings: dict[str, str] = {}
         self.lock = Lock()
 
     def history(self, key: str, system_prompt: str) -> list[dict[str, str]]:
@@ -44,6 +45,18 @@ class MemoryStore:
     def clear(self, key: str) -> None:
         with self.lock:
             self.data.pop(key, None)
+
+    def get_setting(self, key: str, default: str = "") -> str:
+        with self.lock:
+            return self.settings.get(key, default)
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self.lock:
+            self.settings[str(key)] = str(value)
+
+    def delete_setting(self, key: str) -> None:
+        with self.lock:
+            self.settings.pop(str(key), None)
 
     def get_role(self, default: str) -> str:
         with self.lock:

@@ -284,6 +284,44 @@ class PostgresStore:
         except Exception as exc:
             LOGGER.warning("Postgres history clear failed: %s", exc)
 
+    def get_setting(self, key: str, default: str = "") -> str:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT setting_value FROM telegram_settings WHERE setting_key = %s LIMIT 1", (key,))
+                    row = cursor.fetchone()
+            return str(row[0]) if row and row[0] is not None else default
+        except Exception as exc:
+            LOGGER.warning("Postgres setting read failed: %s", exc)
+            return default
+
+    def set_setting(self, key: str, value: str) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO telegram_settings (setting_key, setting_value)
+                        VALUES (%s, %s)
+                        ON CONFLICT (setting_key)
+                        DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = NOW()
+                        """,
+                        (key, value),
+                    )
+        except Exception as exc:
+            LOGGER.warning("Postgres setting write failed: %s", exc)
+
+    def delete_setting(self, key: str) -> None:
+        try:
+            self._ensure_schema()
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("DELETE FROM telegram_settings WHERE setting_key = %s", (key,))
+        except Exception as exc:
+            LOGGER.warning("Postgres setting delete failed: %s", exc)
+
     def get_role(self, default: str) -> str:
         try:
             self._ensure_schema()
