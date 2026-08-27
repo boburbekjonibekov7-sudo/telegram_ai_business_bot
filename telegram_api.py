@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import mimetypes
+import os
+import uuid
 import urllib.error
 import urllib.request
 from typing import Any
@@ -37,6 +40,57 @@ class TelegramBotApi:
         timeout = max(35, int(payload.get("timeout", 0)) + 15)
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
+                raw = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            raise TelegramApiError(method, raw, exc.code) from exc
+        except urllib.error.URLError as exc:
+            raise TelegramApiError(method, f"Tarmoq xatosi: {exc.reason}") from exc
+
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise TelegramApiError(method, "Telegram’dan yaroqsiz JSON javob keldi") from exc
+        if not result.get("ok"):
+            raise TelegramApiError(method, result.get("description", "Noma’lum xato"), result.get("error_code"))
+        return result.get("result")
+
+    async def _call_multipart(self, method: str, fields: dict[str, Any], file_field: str, file_path: str) -> Any:
+        return await asyncio.to_thread(self._call_multipart_sync, method, fields, file_field, file_path)
+
+    def _call_multipart_sync(self, method: str, fields: dict[str, Any], file_field: str, file_path: str) -> Any:
+        boundary = uuid.uuid4().hex
+        body = bytearray()
+
+        def _write_field(name: str, value: str) -> None:
+            body.extend(f"--{boundary}\r\n".encode("utf-8"))
+            body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"))
+            body.extend(f"{value}\r\n".encode("utf-8"))
+
+        for key, value in fields.items():
+            if value is None:
+                continue
+            _write_field(key, value if isinstance(value, str) else json.dumps(value, ensure_ascii=False))
+
+        filename = os.path.basename(file_path)
+        content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(
+            f'Content-Disposition: form-data; name="{file_field}"; filename="{filename}"\r\n'.encode("utf-8")
+        )
+        body.extend(f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"))
+        with open(file_path, "rb") as fh:
+            body.extend(fh.read())
+        body.extend(f"\r\n--{boundary}--\r\n".encode("utf-8"))
+
+        request = urllib.request.Request(
+            f"{self.base_url}/{method}",
+            data=bytes(body),
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
                 raw = response.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             raw = exc.read().decode("utf-8", errors="replace")
@@ -307,6 +361,54 @@ class TelegramBotApi:
         if reply_markup is not None:
             payload["reply_markup"] = reply_markup
         result = await self.call("sendVideo", payload)
+        return result if isinstance(result, dict) else {}
+
+    async def send_dice(
+        self,
+        chat_id: int | str,
+        emoji: str = "🎲",
+        business_connection_id: str | None = None,
+        reply_to_message_id: int | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"chat_id": chat_id, "emoji": emoji}
+        if business_connection_id:
+            payload["business_connection_id"] = business_connection_id
+        if reply_to_message_id is not None:
+            payload["reply_parameters"] = {
+                "message_id": reply_to_message_id,
+                "allow_sending_without_reply": True,
+            }
+        result = await self.call("sendDice", payload)
+        return result if isinstance(result, dict) else {}
+
+    async def send_document(
+        self,
+        chat_id: int | str,
+        file_path: str,
+        caption: str | None = None,
+        business_connection_id: str | None = None,
+    ) -> dict[str, Any]:
+        fields: dict[str, Any] = {"chat_id": str(chat_id)}
+        if caption:
+            fields["caption"] = caption
+        if business_connection_id:
+            fields["business_connection_id"] = business_connection_id
+        result = await self._call_multipart("sendDocument", fields, "document", file_path)
+        return result if isinstance(result, dict) else {}
+
+    async def send_audio(
+        self,
+        chat_id: int | str,
+        file_path: str,
+        caption: str | None = None,
+        business_connection_id: str | None = None,
+    ) -> dict[str, Any]:
+        fields: dict[str, Any] = {"chat_id": str(chat_id)}
+        if caption:
+            fields["caption"] = caption
+        if business_connection_id:
+            fields["business_connection_id"] = business_connection_id
+        result = await self._call_multipart("sendAudio", fields, "audio", file_path)
         return result if isinstance(result, dict) else {}
 
     async def send_message(

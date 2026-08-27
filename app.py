@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import time
 import signal
 from collections import defaultdict
@@ -37,22 +38,37 @@ COMMANDS_PAGE_1_TEXT = """🤖 Chatbot buyruqlari:
 .type text — 📝 Harfma-harf yozish animatsiyasi!
 .ai text — 🤖 AI ga savol berish!
 .send matn @kim 5 — 📤 Accountingizdan xabar yuborish!
-.soat — ⏱ Profilga nikga soat qo‘yish!
-.online — 🟢 24 soat online rejimini yoqish!
-.offline — 🟢 24 soat online rejimini o‘chirish!"""
+.soat — ⏱ Avto javoblarga vaqt belgisi qo‘shish!
+.online — 🟢 Avto javoblarni darhol yoqish!
+.offline — 🔴 Avto javoblarni 24 soatga to‘xtatish!"""
 COMMANDS_PAGE_2_TEXT = """🤖 Chatbot buyruqlari — davom:
 
 .emoji text — Matnni RANDOM premium emoji qilish!
-.dice — 🎟 🎯 🍭 🎰 ⚽ 🏀 har safar har xil yuboriladi!
-.dice1 — 🎟 yuborish!
+.dice — 🎲 🎯 🏀 ⚽ 🎳 🎰 har safar har xil yuboriladi!
+.dice1 — 🎲 yuborish!
 .dice2 — 🎯 yuborish!
-.dice3 — 🍭 yuborish!
-.dice4 — 🎰 yuborish!
-.dice5 — ⚽ yuborish!
-.dice6 — 🏀 yuborish!"""
+.dice3 — 🏀 yuborish!
+.dice4 — ⚽ yuborish!
+.dice5 — 🎳 yuborish!
+.dice6 — 🎰 yuborish!
+.down link — 📥 Video/fayl yuklab berish (VIP)!
+.music nomi/link — 🎵 Musiqa yuklab berish (VIP)!
+.checklist band1, band2 — ☑️ Vazifalar ro‘yxati!"""
 GUIDE_CONNECT_CAPTION = "🤖 Chatbotni ulash qo‘llanmasi"
 GUIDE_USAGE_CAPTION = "🤖 Chatbotdan foydalanish qo‘llanmasi"
-AUTO_REPLY_COMMANDS = ("help", "ping", "ai", "down", "music", "type", "emoji", "dice", "checklist", "info")
+AUTO_REPLY_COMMANDS = (
+    "help", "ping", "ai", "down", "music", "type", "emoji", "dice", "checklist", "info",
+    "settings", "list", "add", "edit", "delete", "send", "soat", "online", "offline",
+    "dice1", "dice2", "dice3", "dice4", "dice5", "dice6",
+)
+# Native Telegram sendDice faqat shu 6 ta emoji bilan ishlaydi (Bot API cheklovi).
+DICE_EMOJIS = ("🎲", "🎯", "🏀", "⚽", "🎳", "🎰")
+# .emoji buyrug'i uchun "premium" ko'rinishdagi belgilangan harflar (unicode enclosed alphanumerics).
+_EMOJI_LETTER_MAP = {chr(ord("a") + i): chr(0x1F150 + i) for i in range(26)}  # 🅰-style bo'lmasa ham yaqin variant pastda ustiga yoziladi
+_EMOJI_LETTER_MAP.update({chr(ord("A") + i): chr(0x1F170 + i) for i in range(26)})  # 🅰🅱🅲... (negative squared latin)
+_EMOJI_DIGIT_MAP = {str(i): d for i, d in enumerate(["0️⃣", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"])}
+# ".send matn @username 5" — oxiridagi @username va ixtiyoriy soniya ajratib olinadi.
+_SEND_COMMAND_RE = re.compile(r"^(?P<text>.*?)\s+@(?P<username>[A-Za-z0-9_]{5,})(?:\s+(?P<delay>\d+))?\s*$")
 VIP_FEATURES_TEXT = """📩 Avto javoblar: 100 ta
 🤖 AI avto javob (kunlik): 500 ta
 🧠 «.ai» savol (kunlik): 100 ta
@@ -612,6 +628,12 @@ class BusinessAiBot:
                     remaining,
                 )
                 return
+        if is_business and isinstance(business_owner_id, int):
+            # .offline buyrug‘i orqali 24 soatga qo‘lda to‘xtatilgan bo‘lishi mumkin.
+            force_offline_until = float(self._user_setting(business_owner_id, "settings_force_offline_until", "0") or "0")
+            if force_offline_until > time.time():
+                LOGGER.info("Avto javob .offline orqali to‘xtatilgan: owner=%s", business_owner_id)
+                return
 
         async with self.chat_locks[storage_key]:
             reply_owner_id = business_owner_id if is_business else user_id
@@ -624,7 +646,7 @@ class BusinessAiBot:
                     custom_reply = None
                 if isinstance(custom_reply, dict):
                     reply_to = message.get("message_id") if custom_reply.get("reply_in_message") else None
-                    await self._send_chunks(chat_id, str(custom_reply.get("response") or ""), business_connection_id, reply_to)
+                    await self._send_chunks(chat_id, self._with_time_signature(reply_owner_id, str(custom_reply.get("response") or "")), business_connection_id, reply_to)
                     if is_business and custom_reply.get("reply_to_owner") and isinstance(business_owner_id, int):
                         await self._send_chunks(business_owner_id, f"📩 Avto javob yuborildi.\n\nTrigger: {custom_reply.get('trigger')}\nJavob: {custom_reply.get('response')}", None, None)
                     return
@@ -672,7 +694,7 @@ class BusinessAiBot:
             LOGGER.info("Javob yuborildi: chat_id=%s provider=%s", chat_id, provider_name)
             await self._send_chunks(
                 chat_id,
-                answer,
+                self._with_time_signature(reply_owner_id, answer),
                 business_connection_id,
                 message.get("message_id"),
             )
@@ -683,6 +705,13 @@ class BusinessAiBot:
                         await read_method(business_connection_id, message["message_id"])
                     except TelegramApiError as exc:
                         LOGGER.warning("Business xabarini o‘qilgan deb belgilab bo‘lmadi: %s", exc)
+
+    def _with_time_signature(self, owner_id: int | None, text: str) -> str:
+        """.soat yoqilgan bo‘lsa, avto/AI javobga «— HH:MM» vaqt belgisini qo‘shadi."""
+        if not isinstance(owner_id, int) or self._user_setting(owner_id, "settings_soat_enabled", "0") != "1":
+            return text
+        stamp = time.strftime("%H:%M")
+        return f"{text}\n\n🕐 {stamp}"
 
     def _mark_owner_activity(self, key: str) -> None:
         self.store.mark_owner_activity(key)
@@ -1921,62 +1950,77 @@ Qisqa qo‘llanma (ochish uchun bosing):
             await self._send_chunks(chat_id, f".{command} buyrug‘i hozir o‘chirilgan.", connection_id, message.get("message_id"))
             return True
         reply_to = message.get("message_id")
+        owner_only_commands = {
+            "settings", "list", "add", "edit", "delete", "send", "soat", "online", "offline",
+        }
+        if is_business and command in owner_only_commands:
+            await self._send_chunks(
+                chat_id,
+                "Bu boshqaruv buyrug‘i faqat akkaunt egasining shaxsiy botga yozgan chatida ishlaydi.",
+                connection_id,
+                reply_to,
+            )
+            return True
         if command == "help":
             await self._send_chunks(chat_id, COMMANDS_PAGE_1_TEXT, connection_id, reply_to)
         elif command == "ping":
-            await self._send_chunks(chat_id, "🏓 Pong!", connection_id, reply_to)
+            started = time.monotonic()
+            sent = await self.telegram.send_message(chat_id=chat_id, text="🏓 Pong!", business_connection_id=connection_id, reply_to_message_id=reply_to)
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            message_id = sent.get("message_id") if isinstance(sent, dict) else None
+            if isinstance(message_id, int):
+                try:
+                    await self.telegram.edit_message_text(chat_id, message_id, f"🏓 Pong! {elapsed_ms} ms")
+                except TelegramApiError:
+                    pass
         elif command == "settings":
             await self._send_chunks(chat_id, self._settings_text(owner_id), connection_id, reply_to, self._settings_keyboard(owner_id))
         elif command == "list":
             rows = self._list_auto_replies(owner_id)
             body = "💬 Avto javoblar ro‘yxati\n\n" + ("\n".join(f"{row.get('id')}. {row.get('trigger')} → {row.get('response')}" for row in rows) if rows else "Hozircha ro‘yxat bo‘sh.")
             await self._send_chunks(chat_id, body, connection_id, reply_to)
-        elif command in {"add", "edit", "delete"}:
-            if is_business:
-                await self._send_chunks(chat_id, "Bu boshqaruv buyrug‘i faqat akkaunt egasi chatida ishlaydi.", connection_id, reply_to)
-            elif command == "add":
-                if "|" in argument:
-                    trigger, response = (part.strip() for part in argument.split("|", 1))
-                    writer = getattr(self.store, "upsert_auto_reply", None)
-                    record_id = writer(owner_id, trigger, response) if callable(writer) and trigger and response else 0
-                    await self._send_chunks(chat_id, f"✅ Avto javob saqlandi (ID: {record_id})." if record_id else "Format: .add trigger | javob", None, reply_to)
-                else:
-                    self._set_user_session(owner_id, "auto_add_trigger")
-                    await self._send_chunks(chat_id, "➕ Trigger so‘z yoki iborani yuboring. Bekor qilish: /cancel", None, reply_to, self._auto_reply_back_keyboard())
-            elif command == "edit":
-                edit_parts = argument.split(maxsplit=1)
-                try:
-                    record_id = int(edit_parts[0])
-                except (IndexError, ValueError):
-                    record_id = 0
-                if record_id and len(edit_parts) == 2 and "|" in edit_parts[1]:
-                    trigger, response = (part.strip() for part in edit_parts[1].split("|", 1))
-                    writer = getattr(self.store, "upsert_auto_reply", None)
-                    updated_id = writer(owner_id, trigger, response, record_id) if callable(writer) and trigger and response else 0
-                    await self._send_chunks(chat_id, f"✅ Avto javob yangilandi (ID: {updated_id})." if updated_id else "Avto javob topilmadi.", None, reply_to)
-                else:
-                    await self._send_chunks(chat_id, "✏️ Format: .edit ID trigger | javob", None, reply_to)
+        elif command == "add":
+            if "|" in argument:
+                trigger, response = (part.strip() for part in argument.split("|", 1))
+                writer = getattr(self.store, "upsert_auto_reply", None)
+                record_id = writer(owner_id, trigger, response) if callable(writer) and trigger and response else 0
+                await self._send_chunks(chat_id, f"✅ Avto javob saqlandi (ID: {record_id})." if record_id else "Format: .add trigger | javob", None, reply_to)
             else:
-                try:
-                    record_id = int(argument)
-                except ValueError:
-                    record_id = 0
-                deleted = self._delete_auto_reply(owner_id, record_id) if record_id else False
-                await self._send_chunks(chat_id, "✅ Avto javob o‘chirildi." if deleted else "Avto javob topilmadi.", None, reply_to)
+                self._set_user_session(owner_id, "auto_add_trigger")
+                await self._send_chunks(chat_id, "➕ Trigger so‘z yoki iborani yuboring. Bekor qilish: /cancel", None, reply_to, self._auto_reply_back_keyboard())
+        elif command == "edit":
+            edit_parts = argument.split(maxsplit=1)
+            try:
+                record_id = int(edit_parts[0])
+            except (IndexError, ValueError):
+                record_id = 0
+            if record_id and len(edit_parts) == 2 and "|" in edit_parts[1]:
+                trigger, response = (part.strip() for part in edit_parts[1].split("|", 1))
+                writer = getattr(self.store, "upsert_auto_reply", None)
+                updated_id = writer(owner_id, trigger, response, record_id) if callable(writer) and trigger and response else 0
+                await self._send_chunks(chat_id, f"✅ Avto javob yangilandi (ID: {updated_id})." if updated_id else "Avto javob topilmadi.", None, reply_to)
+            else:
+                await self._send_chunks(chat_id, "✏️ Format: .edit ID trigger | javob", None, reply_to)
+        elif command == "delete":
+            try:
+                record_id = int(argument)
+            except ValueError:
+                record_id = 0
+            deleted = self._delete_auto_reply(owner_id, record_id) if record_id else False
+            await self._send_chunks(chat_id, "✅ Avto javob o‘chirildi." if deleted else "Avto javob topilmadi.", None, reply_to)
         elif command == "info":
             sender = message.get("from") or {}
             who = self._display_name(sender)
             target = f"Business owner ID: {business_owner_id}" if is_business else f"Telegram ID: {user_id}"
             await self._send_chunks(chat_id, f"👥 Suhbatdosh: {who}\n{target}", connection_id, reply_to)
         elif command == "type":
-            await self._send_chunks(chat_id, argument or "📝 Matn kiriting.", connection_id, reply_to)
+            await self._run_type_animation(chat_id, argument, connection_id, reply_to)
         elif command == "down":
-            await self._send_chunks(chat_id, "📥 .down uchun yuklanadigan havolani yuboring." if not argument else "📥 Havola qabul qilindi. Bu deploymentda avtomatik yuklash xizmati ulanmagan.", connection_id, reply_to)
+            await self._handle_download_command(chat_id, argument, connection_id, reply_to, owner_id, kind="video")
         elif command == "music":
-            await self._send_chunks(chat_id, "🎵 .music uchun musiqa nomi yoki havola yuboring. Bu deploymentda audio qidiruv xizmati ulanmagan.", connection_id, reply_to)
+            await self._handle_download_command(chat_id, argument, connection_id, reply_to, owner_id, kind="audio")
         elif command == "checklist":
-            items = [item.strip() for item in argument.split(",") if item.strip()] if argument else []
-            await self._send_chunks(chat_id, "☑️ Checklist\n\n" + ("\n".join(f"☐ {item}" for item in items) if items else "☐ Bandlarni vergul bilan yuboring."), connection_id, reply_to)
+            await self._handle_checklist_command(chat_id, argument, connection_id, reply_to)
         elif command == "ai":
             if not argument:
                 await self._send_chunks(chat_id, "🤖 .ai dan keyin savol yozing.", connection_id, reply_to)
@@ -1987,10 +2031,157 @@ Qisqa qo‘llanma (ochish uchun bosing):
                 except ProviderError:
                     await self._send_chunks(chat_id, "AI javobini tayyorlab bo‘lmadi.", connection_id, reply_to)
         elif command == "emoji":
-            await self._send_chunks(chat_id, f"🌟 {argument}" if argument else "🌟 Matn kiriting.", connection_id, reply_to)
+            await self._send_chunks(chat_id, self._premium_emoji_text(argument) if argument else "🌟 .emoji dan keyin matn kiriting.", connection_id, reply_to)
         elif command == "dice":
-            await self._send_chunks(chat_id, "🎲", connection_id, reply_to)
+            await self.telegram.send_dice(chat_id, business_connection_id=connection_id, reply_to_message_id=reply_to)
+        elif command in {"dice1", "dice2", "dice3", "dice4", "dice5", "dice6"}:
+            emoji = DICE_EMOJIS[int(command[-1]) - 1]
+            await self.telegram.send_dice(chat_id, emoji=emoji, business_connection_id=connection_id, reply_to_message_id=reply_to)
+        elif command == "send":
+            await self._handle_send_command(chat_id, argument, connection_id, reply_to, owner_id)
+        elif command == "soat":
+            enabled = self._toggle_user_setting(owner_id, "settings_soat_enabled")
+            await self._send_chunks(
+                chat_id,
+                "⏱ Avto javoblarga vaqt belgisi qo‘shildi (masalan: «Javob — 14:05»)." if enabled else "⏱ Avto javoblardagi vaqt belgisi o‘chirildi.",
+                connection_id,
+                reply_to,
+            )
+        elif command == "online":
+            self._set_user_setting(owner_id, "settings_force_offline_until", "0")
+            await self._send_chunks(chat_id, "🟢 Avto javoblar darhol yoqildi (agar «qo‘lda pauza» faol bo‘lmasa).", connection_id, reply_to)
+        elif command == "offline":
+            self._set_user_setting(owner_id, "settings_force_offline_until", str(time.time() + 24 * 3600))
+            await self._send_chunks(chat_id, "🔴 Avto javoblar 24 soatga to‘xtatildi. Qayta yoqish uchun: .online", connection_id, reply_to)
         return True
+
+    def _toggle_user_setting(self, owner_id: int, key: str) -> bool:
+        current = self._user_setting(owner_id, key, "0")
+        new_value = "0" if current == "1" else "1"
+        self._set_user_setting(owner_id, key, new_value)
+        return new_value == "1"
+
+    @staticmethod
+    def _premium_emoji_text(text: str) -> str:
+        out_chars = []
+        for ch in text:
+            if ch in _EMOJI_LETTER_MAP:
+                out_chars.append(_EMOJI_LETTER_MAP[ch])
+            elif ch in _EMOJI_DIGIT_MAP:
+                out_chars.append(_EMOJI_DIGIT_MAP[ch])
+            else:
+                out_chars.append(ch)
+        return "".join(out_chars)
+
+    async def _run_type_animation(self, chat_id: int, text: str, connection_id: str | None, reply_to: int | None) -> None:
+        if not text:
+            await self._send_chunks(chat_id, "📝 .type dan keyin matn kiriting.", connection_id, reply_to)
+            return
+        text = text[:500]
+        steps = min(12, max(4, len(text) // 6))
+        chunk_size = max(1, len(text) // steps)
+        sent = await self.telegram.send_message(
+            chat_id=chat_id,
+            text=text[:chunk_size] or "…",
+            business_connection_id=connection_id,
+            reply_to_message_id=reply_to,
+        )
+        message_id = sent.get("message_id") if isinstance(sent, dict) else None
+        if not isinstance(message_id, int):
+            return
+        for cut in range(chunk_size * 2, len(text) + chunk_size, chunk_size):
+            await asyncio.sleep(0.35)
+            partial = text[:cut]
+            try:
+                await self.telegram.edit_message_text(chat_id, message_id, partial)
+            except TelegramApiError:
+                break
+
+    async def _handle_checklist_command(self, chat_id: int, argument: str, connection_id: str | None, reply_to: int | None) -> None:
+        # Checklist bandlari alohida jadval ochmasdan, mavjud user-setting
+        # mexanizmi orqali (chat_id "user_id" sifatida) JSON holida saqlanadi.
+        storage_key = "checklist_items"
+        if argument.strip().lower() in {"clear", "tozalash"}:
+            self._set_user_setting(chat_id, storage_key, "[]")
+            await self._send_chunks(chat_id, "☑️ Checklist tozalandi.", connection_id, reply_to)
+            return
+        try:
+            existing = json.loads(self._user_setting(chat_id, storage_key, "[]") or "[]")
+            if not isinstance(existing, list):
+                existing = []
+        except (json.JSONDecodeError, TypeError):
+            existing = []
+        new_items = [item.strip() for item in argument.split(",") if item.strip()] if argument else []
+        if new_items:
+            existing.extend(new_items)
+            existing = existing[-50:]  # ortiqcha o'sib ketmasligi uchun
+            self._set_user_setting(chat_id, storage_key, json.dumps(existing, ensure_ascii=False))
+        if not existing:
+            await self._send_chunks(chat_id, "☑️ Checklist\n\n☐ Bandlarni vergul bilan yuboring, masalan:\n.checklist Non olish, Suv ichish", connection_id, reply_to)
+            return
+        body = "\n".join(f"☐ {item}" for item in existing)
+        await self._send_chunks(chat_id, f"☑️ Checklist\n\n{body}\n\nTozalash: .checklist clear", connection_id, reply_to)
+
+    async def _handle_send_command(self, chat_id: int, argument: str, connection_id: str | None, reply_to: int | None, owner_id: int) -> None:
+        # Format: .send matn @username 5  (5 soniyadan keyin yuboriladi, soniya ixtiyoriy)
+        match = _SEND_COMMAND_RE.match(argument or "")
+        if not match:
+            await self._send_chunks(chat_id, "📤 Format: .send matn @username [soniya]", connection_id, reply_to)
+            return
+        body, username, delay_raw = match.group("text").strip(), match.group("username"), match.group("delay")
+        delay = int(delay_raw) if delay_raw else 0
+        if not body or not username:
+            await self._send_chunks(chat_id, "📤 Format: .send matn @username [soniya]", connection_id, reply_to)
+            return
+        try:
+            target_chat = await self.telegram.get_chat(f"@{username}")
+            target_chat_id = target_chat.get("id")
+        except TelegramApiError as exc:
+            await self._send_chunks(chat_id, f"❌ @{username} topilmadi yoki bot u bilan hali muloqot qilmagan: {exc.description}", connection_id, reply_to)
+            return
+        if not isinstance(target_chat_id, int):
+            await self._send_chunks(chat_id, f"❌ @{username} chatini aniqlab bo‘lmadi.", connection_id, reply_to)
+            return
+        await self._send_chunks(chat_id, f"📤 Xabar {delay} soniyadan keyin @{username} ga yuboriladi.", connection_id, reply_to)
+
+        async def _delayed_send() -> None:
+            if delay > 0:
+                await asyncio.sleep(delay)
+            try:
+                await self.telegram.send_message(chat_id=target_chat_id, text=body, business_connection_id=connection_id)
+            except TelegramApiError as exc:
+                LOGGER.warning(".send buyrug‘i orqali xabar yuborilmadi: %s", exc)
+
+        asyncio.create_task(_delayed_send())
+
+    async def _handle_download_command(self, chat_id: int, argument: str, connection_id: str | None, reply_to: int | None, owner_id: int, kind: str) -> None:
+        label = "video/fayl" if kind == "video" else "musiqa"
+        if not argument:
+            await self._send_chunks(chat_id, f"📥 .{'down' if kind == 'video' else 'music'} dan keyin havola yoki nom yuboring.", connection_id, reply_to)
+            return
+        if not self._has_premium(owner_id):
+            await self._send_chunks(chat_id, f"🔒 {label.capitalize()} yuklab olish faqat VIP 💎 obunachilar uchun. /premium orqali VIP oling.", connection_id, reply_to)
+            return
+        try:
+            from media_downloader import download_media, DownloadError
+        except ImportError:
+            await self._send_chunks(chat_id, "⚠️ Yuklab olish moduli serverga o‘rnatilmagan (yt-dlp kerak).", connection_id, reply_to)
+            return
+        await self._send_chunks(chat_id, f"⏳ {label.capitalize()} yuklanmoqda, biroz kuting…", connection_id, reply_to)
+        try:
+            result = await download_media(argument, audio_only=(kind == "audio"))
+        except DownloadError as exc:
+            await self._send_chunks(chat_id, f"❌ Yuklab bo‘lmadi: {exc}", connection_id, reply_to)
+            return
+        try:
+            if kind == "audio":
+                await self.telegram.send_audio(chat_id, result.path, caption=result.title, business_connection_id=connection_id)
+            else:
+                await self.telegram.send_document(chat_id, result.path, caption=result.title, business_connection_id=connection_id)
+        except TelegramApiError as exc:
+            await self._send_chunks(chat_id, f"❌ Fayl Telegram’ga yuborilmadi: {exc.description}", connection_id, reply_to)
+        finally:
+            result.cleanup()
 
     async def _handle_owner_session(self, message: dict[str, Any], text: str, chat_id: int) -> bool:
         user_id = self._user_id(message)

@@ -30,9 +30,58 @@ Bot @BotFather’da Business Mode yoki profile Chat Automation bilan ishlashga r
 | `storage.py` | Lokal ishlashda JSON suhbat storage’i |
 | `pause_store.py` | Optional Upstash Redis REST orqali durable owner-pause storage’i |
 | `postgres_pause_store.py` | Neon PostgreSQL orqali durable owner-pause storage’i |
+| `media_downloader.py` | `.down` / `.music` uchun yt-dlp asosidagi yuklab olish moduli (VIP, faqat doimiy server muhitida) |
 | `config.py` | Environment variable konfiguratsiyasi |
 | `vercel.json` | Vercel Python build va route sozlamalari |
 | `.env.example` | Lokal namuna konfiguratsiyasi |
+| `requirements-optional.txt` | `.down`/`.music` uchun ixtiyoriy yt-dlp bog‘liqligi (Vercel’da emas, VPS/run.sh uchun) |
+
+## `.` bilan boshlanadigan chatbot buyruqlari (business chat avtomatlashtiruvi)
+
+Quyidagi buyruqlar akkaunt egasi ulangan Telegram Business chatlarida ishlaydi
+(`.help` orqali to‘liq ro‘yxat ko‘rinadi):
+
+| Buyruq | Kim ishlata oladi | Vazifasi |
+|---|---|---|
+| `.help` | hamma | Buyruqlar ro‘yxati |
+| `.ping` | egasi | Bot javob tezligini (ms) ko‘rsatadi |
+| `.settings` | faqat shaxsiy chat | Sozlamalar menyusi |
+| `.add` / `.edit` / `.delete` | faqat shaxsiy chat | Avto-javob qo‘shish/tahrirlash/o‘chirish |
+| `.list` | faqat shaxsiy chat | Avto-javoblar ro‘yxati |
+| `.info` | hamma | Suhbatdosh haqida ma’lumot |
+| `.type matn` | hamma | Harfma-harf yozish animatsiyasi |
+| `.ai savol` | egasi | AI’dan javob olish |
+| `.send matn @user 5` | faqat shaxsiy chat | N soniyadan keyin @user’ga xabar yuborish |
+| `.soat` | faqat shaxsiy chat | Avto/AI javoblarga vaqt belgisi (🕐 HH:MM) qo‘shish/o‘chirish |
+| `.online` / `.offline` | faqat shaxsiy chat | Avto-javoblarni darhol yoqish / 24 soatga to‘xtatish |
+| `.emoji matn` | hamma | Matnni 🅰🅱🅲-uslub “premium” belgilarga aylantiradi |
+| `.dice`, `.dice1`-`.dice6` | hamma | Native Telegram 🎲🎯🏀⚽🎳🎰 animatsiyasi |
+| `.checklist band1, band2` | hamma | Vazifalar ro‘yxati (`.checklist clear` — tozalash) |
+| `.down link` | egasi, VIP | Video/fayl yuklab berish (yt-dlp, faqat VPS/run.sh) |
+| `.music nomi/link` | egasi, VIP | Musiqa yuklab berish (yt-dlp, faqat VPS/run.sh) |
+
+### Muhim texnik cheklov: `.soat` / `.online` / `.offline`
+
+Original namunada bu buyruqlar profil ismiga soat qo‘shish va akkauntning
+haqiqiy online/offline holatini (presence) o‘zgartirishni anglatadi. Bu **faqat
+to‘liq foydalanuvchi sessiyasi (MTProto — Telethon/Pyrogram + `api_id`/`api_hash`
++ login)** orqali bajariladi. Ushbu loyiha ataylab Bot API + Business Connection
+arxitekturasidan foydalanadi (`api_id`/`api_hash` shart emas — README yuqorida),
+shuning uchun Telegram profilining haqiqiy ismini yoki online holatini
+o‘zgartirish **texnik jihatdan imkonsiz**. Shu sabab bu uch buyruq foydali
+muqobil vazifaga moslashtirildi: `.soat` — avtomatik javoblarga vaqt belgisi
+qo‘shadi, `.online`/`.offline` — avto-javob avtomatlashtiruvini darhol
+yoqadi/24 soatga to‘xtatadi. Agar haqiqiy presence-spoofing zarur bo‘lsa, buni
+faqat alohida Telethon-asosidagi userbot qatlami orqali qo‘shish mumkin.
+
+### `.down` / `.music` haqida
+
+Bu ikkalasi `yt-dlp` orqali ishlaydi (`requirements-optional.txt`). Vercel
+serverless funksiyalarida vaqt/hajm cheklovlari borligi sabab (ffmpeg yo‘q,
+60 soniya limit, vaqtinchalik disk kichik) bu buyruqlar **ishonchli faqat
+`run.sh` orqali doimiy ishlaydigan server/VPS muhitida** ishlaydi. Fayl hajmi
+Telegram Bot API cheklovi (~50MB) dan katta bo‘lsa, foydalanuvchiga xato xabari
+qaytariladi (soxta muvaffaqiyat ko‘rsatilmaydi).
 
 ## Vercel Environment Variables
 
