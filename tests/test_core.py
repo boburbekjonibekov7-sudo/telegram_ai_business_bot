@@ -221,6 +221,7 @@ class AdminPanelAndApkTests(unittest.TestCase):
             self.forwarded = []
             self.photos = []
             self.videos = []
+            self.edited_media = []
             self.typing_calls = []
             self.read_business_calls = []
 
@@ -239,6 +240,12 @@ class AdminPanelAndApkTests(unittest.TestCase):
             self.videos.append(item)
             self.sent.append(item)
             return {"message_id": 12}
+
+        async def edit_message_media(self, chat_id, message_id, media_type, media, caption, reply_markup=None):
+            item = {"chat_id": chat_id, "message_id": message_id, "media_type": media_type, "media": media, "caption": caption, "reply_markup": reply_markup}
+            self.edited_media.append(item)
+            self.sent.append(item)
+            return True
 
         async def delete_message(self, chat_id, message_id):
             self.deleted.append((chat_id, message_id))
@@ -566,11 +573,12 @@ class AdminPanelAndApkTests(unittest.TestCase):
         bot.store.set_setting("usage_guide_video_file_id", "usage-video")
         user = {"id": 1253}
         asyncio.run(bot.process_update({"callback_query": {"id": "guide-video", "from": user, "data": "menu:guide", "message": {"chat": {"id": 1253}, "message_id": 10}}}))
-        self.assertEqual(bot.telegram.videos[-1]["video"], "connect-video")
-        self.assertIn("Chatbotni ulash qo‘llanmasi", bot.telegram.videos[-1]["caption"])
+        self.assertEqual(bot.telegram.videos, [])
+        self.assertEqual(bot.telegram.edited_media[-1]["media"], "connect-video")
+        self.assertIn("Chatbotni ulash qo‘llanmasi", bot.telegram.edited_media[-1]["caption"])
         asyncio.run(bot.process_update({"callback_query": {"id": "usage-video", "from": user, "data": "guide:usage", "message": {"chat": {"id": 1253}, "message_id": 10}}}))
-        self.assertEqual(bot.telegram.videos[-1]["video"], "usage-video")
-        self.assertIn("Chatbotdan foydalanish qo‘llanmasi", bot.telegram.videos[-1]["caption"])
+        self.assertEqual(bot.telegram.edited_media[-1]["media"], "usage-video")
+        self.assertIn("Chatbotdan foydalanish qo‘llanmasi", bot.telegram.edited_media[-1]["caption"])
 
     def test_non_owner_cannot_open_or_upload_menu_media(self) -> None:
         bot = self._bot()
@@ -578,6 +586,19 @@ class AdminPanelAndApkTests(unittest.TestCase):
         asyncio.run(bot.process_update({"callback_query": {"id": "media-forged", "from": user, "data": "owner:media", "message": {"chat": {"id": 1251}, "message_id": 10}}}))
         self.assertEqual(bot.telegram.callback_answers[-1], ("media-forged", "Siz admin emassiz.", True))
         self.assertIsNone(bot.store.get_admin_session(1251))
+
+    def test_configured_media_navigation_edits_one_message(self) -> None:
+        bot = self._bot()
+        bot.store.set_setting("start_media_file_id", "start-photo")
+        bot.store.set_setting("commands_media_file_id", "commands-photo")
+        user = {"id": 1253}
+        asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1253}, "from": user, "text": "/start"}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "media-commands", "from": user, "data": "menu:commands", "message": {"chat": {"id": 1253}, "message_id": 10}}}))
+        self.assertEqual(len(bot.telegram.photos), 1)
+        self.assertEqual(len(bot.telegram.edited_media), 1)
+        self.assertEqual(bot.telegram.edited_media[-1]["media_type"], "photo")
+        self.assertEqual(bot.telegram.edited_media[-1]["media"], "commands-photo")
+        self.assertEqual(bot.telegram.deleted, [])
 
     def test_configured_media_is_sent_with_file_id(self) -> None:
         bot = self._bot()

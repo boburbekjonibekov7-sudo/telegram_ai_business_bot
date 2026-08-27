@@ -1286,16 +1286,17 @@ Qisqa qo‘llanma (ochish uchun bosing):
         media = self._media_config(slot) if slot else None
         if media:
             file_id, media_type = media
+            if edit_message_id is not None:
+                try:
+                    await self.telegram.edit_message_media(chat_id, edit_message_id, media_type, file_id, text, markup)
+                    return
+                except TelegramApiError as exc:
+                    LOGGER.warning("Media xabarini bitta oynada tahrirlab bo‘lmadi slot=%s: %s", slot, exc)
             try:
                 if media_type == "video":
                     await self.telegram.send_video(chat_id, file_id, text, reply_markup=markup)
                 else:
                     await self.telegram.send_photo(chat_id, file_id, text, reply_markup=markup)
-                if edit_message_id is not None:
-                    try:
-                        await self.telegram.delete_message(chat_id, edit_message_id)
-                    except TelegramApiError:
-                        pass
                 return
             except TelegramApiError as exc:
                 LOGGER.warning("Konfiguratsiya qilingan media yuborilmadi slot=%s: %s", slot, exc)
@@ -1327,13 +1328,14 @@ Qisqa qo‘llanma (ochish uchun bosing):
         start_text = self._start_menu_text(user)
         media = self._media_config("start")
         if media:
+            if edit_message_id is not None:
+                try:
+                    await self.telegram.edit_message_media(chat_id, edit_message_id, media[1], media[0], start_text, self._main_menu_keyboard())
+                    return
+                except TelegramApiError as exc:
+                    LOGGER.warning("Start media xabarini bitta oynada tahrirlab bo‘lmadi: %s", exc)
             try:
                 await self.telegram.send_photo(chat_id, media[0], start_text, reply_markup=self._main_menu_keyboard())
-                if edit_message_id is not None:
-                    try:
-                        await self.telegram.delete_message(chat_id, edit_message_id)
-                    except TelegramApiError:
-                        pass
                 return
             except TelegramApiError as exc:
                 LOGGER.warning("Start rasmi yuborilmadi: %s", exc)
