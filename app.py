@@ -1572,14 +1572,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
         await self._send_chunks(chat_id, start_text, None, reply_to, self._main_menu_keyboard())
 
     def _auto_replies_text(self, user_id: int | None) -> str:
-        notice = self._user_setting(user_id or 0, "auto_reply_notice", "")
-        lines = ["💬 Avto javoblar ro‘yxati"]
-        if notice:
-            lines.extend(["", notice])
-        lines.extend(["", "⚙️ Buyruqlar ruxsati:"])
-        for command in AUTO_REPLY_COMMANDS:
-            status = "Hamma" if self._user_setting(user_id or 0, f"auto_reply_{command}_permission", "all") == "all" else "Hech kim"
-            lines.append(f".{command} ni ishlatish: {status}")
+        lines = ["💬 Avto javoblar ro‘yxati", "", "Bu bo‘limda saqlangan avto javoblaringiz boshqariladi."]
         records = self._list_auto_replies(user_id)
         lines.extend(["", "📩 Shaxsiy avto javoblar:"])
         if records:
@@ -1600,7 +1593,6 @@ Qisqa qo‘llanma (ochish uchun bosing):
                 {"text": "✏️ Tahrirlash", "callback_data": f"auto:edit:{record_id}"},
                 {"text": "🗑 O‘chirish", "callback_data": f"auto:delete:{record_id}"},
             ])
-        rows.append([{"text": "⚙️ Buyruqlar ruxsati", "callback_data": "auto:permissions"}])
         rows.append([{"text": "🔙 Orqaga", "callback_data": "menu:home"}])
         return {"inline_keyboard": rows}
 

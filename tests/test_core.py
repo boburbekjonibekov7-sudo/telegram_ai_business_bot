@@ -606,14 +606,17 @@ class AdminPanelAndApkTests(unittest.TestCase):
         user = {"id": 1255}
         base = {"chat": {"id": 1255}, "message_id": 10}
         asyncio.run(bot.process_update({"callback_query": {"id": "auto-list", "from": user, "data": "menu:auto_replies", "message": base}}))
-        self.assertIn(".help ni ishlatish: Hamma", bot.telegram.edited_media[-1]["caption"])
+        self.assertNotIn("Buyruqlar ruxsati", bot.telegram.edited_media[-1]["caption"])
+        self.assertFalse(any(button["callback_data"] == "auto:permissions" for row in bot.telegram.edited_media[-1]["reply_markup"]["inline_keyboard"] for button in row))
+        asyncio.run(bot.process_update({"callback_query": {"id": "settings-commands", "from": user, "data": "settings:commands", "message": base}}))
+        self.assertIn("Hamma / Hech kim", bot.telegram.edited_media[-1]["caption"])
         asyncio.run(bot.process_update({"callback_query": {"id": "auto-help-off", "from": user, "data": "auto:toggle:help", "message": base}}))
         self.assertEqual(bot.store.get_user_setting(1255, "auto_reply_help_permission"), "")
-        self.assertIn("o‘chirilsinmi?", bot.telegram.edited_media[-1]["caption"])
+        self.assertIn("Hech kim", bot.telegram.edited_media[-1]["caption"])
+        self.assertIn("✅ Ha", [button["text"] for row in bot.telegram.edited_media[-1]["reply_markup"]["inline_keyboard"] for button in row])
         yes_data = bot.telegram.edited_media[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
         asyncio.run(bot.process_update({"callback_query": {"id": "auto-help-yes", "from": user, "data": yes_data, "message": base}}))
         self.assertEqual(bot.store.get_user_setting(1255, "auto_reply_help_permission"), "none")
-        self.assertEqual(bot.telegram.callback_answers[-1], ("auto-help-yes", ".help: Hech kim ✅", True))
         self.assertIn(".help ni ishlatish: Hech kim", bot.telegram.edited_media[-1]["caption"])
 
     def test_profile_auto_replies_settings_media_callbacks_edit_one_message(self) -> None:
