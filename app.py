@@ -931,7 +931,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
             [{"text": "✉️ Avto javob berganda xabarni o‘qish: on", "callback_data": "settings:read"}],
             [{"text": "💱 Valyuta miqdor hisoblash: on", "callback_data": "settings:currency"}],
             [{"text": "📗 Buyruqlarni kim ishlata oladi", "callback_data": "settings:commands"}],
-            [{"text": "🧙 Pro funksiyalar", "callback_data": "settings:pro"}, {"text": "😎 Biznes funksiyalar", "callback_data": "settings:business"}],
+            [{"text": "VIP 💎 obuna", "callback_data": "profile:vip"}],
             [{"text": "🔙 Orqaga", "callback_data": "menu:home"}],
         ]}
 

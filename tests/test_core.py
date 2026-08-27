@@ -605,6 +605,13 @@ class AdminPanelAndApkTests(unittest.TestCase):
         url_button = screen["reply_markup"]["inline_keyboard"][0][0]
         self.assertEqual(url_button["text"], "🤝 Chatbotni sozlash")
         self.assertEqual(url_button["url"], "tg://settings/edit")
+        buttons = [button for row in screen["reply_markup"]["inline_keyboard"] for button in row]
+        labels = [button["text"] for button in buttons]
+        self.assertIn("VIP 💎 obuna", labels)
+        self.assertNotIn("🧙 Pro funksiyalar", labels)
+        self.assertNotIn("😎 Biznes funksiyalar", labels)
+        vip_button = next(button for button in buttons if button["text"] == "VIP 💎 obuna")
+        self.assertEqual(vip_button["callback_data"], "profile:vip")
         self.assertEqual(screen["reply_markup"]["inline_keyboard"][-1][0]["callback_data"], "menu:home")
 
     def test_profile_vip_back_returns_to_profile(self) -> None:
