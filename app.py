@@ -56,11 +56,7 @@ COMMANDS_PAGE_2_TEXT = """🤖 Chatbot buyruqlari — davom:
 .checklist band1, band2 — ☑️ Vazifalar ro‘yxati!"""
 GUIDE_CONNECT_CAPTION = "🤖 Chatbotni ulash qo‘llanmasi"
 GUIDE_USAGE_CAPTION = "🤖 Chatbotdan foydalanish qo‘llanmasi"
-AUTO_REPLY_COMMANDS = (
-    "help", "ping", "ai", "down", "music", "type", "emoji", "dice", "checklist", "info",
-    "settings", "list", "add", "edit", "delete", "send", "soat", "online", "offline",
-    "dice1", "dice2", "dice3", "dice4", "dice5", "dice6",
-)
+AUTO_REPLY_COMMANDS = ("help", "ping", "ai", "down", "music", "type", "emoji", "dice", "checklist", "info")
 # Native Telegram sendDice faqat shu 6 ta emoji bilan ishlaydi (Bot API cheklovi).
 DICE_EMOJIS = ("🎲", "🎯", "🏀", "⚽", "🎳", "🎰")
 # .emoji buyrug'i uchun "premium" ko'rinishdagi belgilangan harflar (unicode enclosed alphanumerics).
@@ -920,8 +916,18 @@ class BusinessAiBot:
         if data == "menu:settings":
             await self._render_media_or_text(chat_id, self._settings_text(user_id), self._settings_keyboard(user_id), "start", message_id)
             return
-        if data in {"settings:edit", "settings:delete", "settings:deletions"}:
-            kind = "delete" if data != "settings:edit" else "edit"
+        if data in {"settings:edit", "settings:delete"}:
+            kind = "edit" if data == "settings:edit" else "delete"
+            key = f"{kind}_notify_enabled"
+            default = "0" if kind == "edit" else "1"
+            enabled = self._user_setting(user_id, key, default) != "1"
+            self._set_user_setting(user_id, key, "1" if enabled else "0")
+            label = "Tahrirlash" if kind == "edit" else "O‘chirishlar"
+            await self.telegram.answer_callback_query(callback_id, f"{label} {'yoqildi 🔔' if enabled else 'o‘chirildi 🔕'}!", True)
+            await self._render_media_or_text(chat_id, self._settings_text(user_id), self._settings_keyboard(user_id), "start", message_id)
+            return
+        if data in {"settings:edit:details", "settings:delete:details", "settings:deletions"}:
+            kind = "delete" if data != "settings:edit:details" else "edit"
             await self._render_media_or_text(chat_id, self._settings_feature_text(kind, user_id), self._settings_feature_keyboard(kind, user_id), "start", message_id)
             return
         if data.startswith(("settings:edit:", "settings:delete:")):
@@ -955,7 +961,7 @@ class BusinessAiBot:
                 await self._render_media_or_text(chat_id, self._settings_feature_text(kind, user_id), self._settings_feature_keyboard(kind, user_id), "start", message_id)
                 return
         if data == "settings:commands":
-            await self._render_media_or_text(chat_id, "📗 Buyruqlar ruxsati\n\nQaysi buyruqni kim ishlatishini Telegram Business sozlamalaridan belgilaysiz.", self._settings_back_keyboard(), "start", message_id)
+            await self._render_media_or_text(chat_id, self._auto_permissions_text(user_id), self._auto_permissions_keyboard(user_id), "start", message_id)
             return
         toggle_settings = {
             "settings:apk": ("settings_apk_delete_enabled", "1", "APK o‘chirish"),
@@ -983,7 +989,7 @@ class BusinessAiBot:
             await self._render_media_or_text(chat_id, "➕ Avto javob qo‘shish\n\nTrigger so‘z yoki iborani yuboring. Bekor qilish: /cancel", self._auto_reply_back_keyboard(), "start", message_id)
             return
         if data == "auto:permissions":
-            await self._render_media_or_text(chat_id, self._auto_permissions_text(user_id), self._auto_permissions_keyboard(), "start", message_id)
+            await self._render_media_or_text(chat_id, self._auto_permissions_text(user_id), self._auto_permissions_keyboard(user_id), "start", message_id)
             return
         if data.startswith("auto:view:"):
             record_id = self._parse_record_id(data)
@@ -1041,7 +1047,7 @@ class BusinessAiBot:
             status = "Hamma" if enabled_for_all else "Hech kim"
             self._set_user_setting(user_id, "auto_reply_notice", f"✅ .{command} endi {status} uchun ishlaydi.")
             await self.telegram.answer_callback_query(callback_id, f".{command} buyrug‘i: {status} ✅", True)
-            await self._render_media_or_text(chat_id, self._auto_replies_text(user_id), self._auto_replies_keyboard(user_id), "start", message_id)
+            await self._render_media_or_text(chat_id, self._auto_permissions_text(user_id), self._auto_permissions_keyboard(user_id), "start", message_id)
             return
         if data == "menu:about":
             await self._render_media_or_text(chat_id, BOT_ABOUT_TEXT, self._about_keyboard(), "start", message_id)
@@ -1245,6 +1251,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
         return {"inline_keyboard": [
             [{"text": "🤝 Chatbotni sozlash", "url": "tg://settings/edit"}],
             [{"text": f"✏️ Tahrirlash: {'on' if edit_state else 'off'}", "callback_data": "settings:edit"}, {"text": f"🗑 O‘chirishlar: {'on' if delete_state else 'off'}", "callback_data": "settings:delete"}],
+            [{"text": "⚙️ Tahrirlash sozlamalari", "callback_data": "settings:edit:details"}, {"text": "⚙️ O‘chirish sozlamalari", "callback_data": "settings:delete:details"}],
             [{"text": f"🤖 APK o‘chirish: {'on' if self._user_setting(uid, 'settings_apk_delete_enabled', '1') == '1' else 'off'}", "callback_data": "settings:apk"}, {"text": f"••• Yozmoqda: {'on' if self._user_setting(uid, 'settings_typing_enabled', '1') == '1' else 'off'}", "callback_data": "settings:typing"}],
             [{"text": f"✉️ Avto javob berganda xabarni o‘qish: {'on' if self._user_setting(uid, 'settings_read_enabled', '1') == '1' else 'off'}", "callback_data": "settings:read"}],
             [{"text": f"💱 Valyuta miqdorini hisoblash: {'on' if self._user_setting(uid, 'settings_currency_enabled', '1') == '1' else 'off'}", "callback_data": "settings:currency"}],
@@ -1531,11 +1538,14 @@ Qisqa qo‘llanma (ochish uchun bosing):
         lines = ["⚙️ Buyruqlar ruxsati", "", "Har bir tugma bosilganda Hamma / Hech kim holati almashadi:"]
         for command in AUTO_REPLY_COMMANDS:
             status = "Hamma" if self._user_setting(user_id or 0, f"auto_reply_{command}_permission", "all") == "all" else "Hech kim"
-            lines.append(f".{command}: {status}")
+            lines.append(f".{command} ni ishlatish: {status}")
         return "\n".join(lines)
 
-    def _auto_permissions_keyboard(self) -> dict[str, Any]:
-        rows = [[{"text": f".{command}", "callback_data": f"auto:toggle:{command}"}] for command in AUTO_REPLY_COMMANDS]
+    def _auto_permissions_keyboard(self, user_id: int | None = None) -> dict[str, Any]:
+        rows = []
+        for command in AUTO_REPLY_COMMANDS:
+            status = "Hamma" if self._user_setting(user_id or 0, f"auto_reply_{command}_permission", "all") == "all" else "Hech kim"
+            rows.append([{"text": f".{command} ni ishlatish: {status}", "callback_data": f"auto:toggle:{command}"}])
         rows.extend([[{"text": "🔙 Avto javoblar ro‘yxati", "callback_data": "menu:auto_replies"}], [{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}]])
         return {"inline_keyboard": rows}
 
