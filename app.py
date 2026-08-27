@@ -1290,8 +1290,13 @@ Qisqa qo‘llanma (ochish uchun bosing):
                 try:
                     await self.telegram.edit_message_media(chat_id, edit_message_id, media_type, file_id, text, markup)
                     return
-                except TelegramApiError as exc:
-                    LOGGER.warning("Media xabarini bitta oynada tahrirlab bo‘lmadi slot=%s: %s", slot, exc)
+                except (TelegramApiError, AttributeError) as exc:
+                    LOGGER.warning("Media xabarini tahrirlashda xato slot=%s: %s", slot, exc)
+                    try:
+                        await self.telegram.edit_message_caption(chat_id, edit_message_id, text, markup)
+                        return
+                    except (TelegramApiError, AttributeError) as caption_exc:
+                        LOGGER.warning("Media caption/keyboard fallback ham ishlamadi slot=%s: %s", slot, caption_exc)
             try:
                 if media_type == "video":
                     await self.telegram.send_video(chat_id, file_id, text, reply_markup=markup)
@@ -1332,8 +1337,13 @@ Qisqa qo‘llanma (ochish uchun bosing):
                 try:
                     await self.telegram.edit_message_media(chat_id, edit_message_id, media[1], media[0], start_text, self._main_menu_keyboard())
                     return
-                except TelegramApiError as exc:
-                    LOGGER.warning("Start media xabarini bitta oynada tahrirlab bo‘lmadi: %s", exc)
+                except (TelegramApiError, AttributeError) as exc:
+                    LOGGER.warning("Start media xabarini tahrirlashda xato: %s", exc)
+                    try:
+                        await self.telegram.edit_message_caption(chat_id, edit_message_id, start_text, self._main_menu_keyboard())
+                        return
+                    except (TelegramApiError, AttributeError) as caption_exc:
+                        LOGGER.warning("Start media caption/keyboard fallback ham ishlamadi: %s", caption_exc)
             try:
                 await self.telegram.send_photo(chat_id, media[0], start_text, reply_markup=self._main_menu_keyboard())
                 return
