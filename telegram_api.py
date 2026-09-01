@@ -276,10 +276,13 @@ class TelegramBotApi:
         message_id: int,
         text: str,
         reply_markup: dict[str, Any] | None = None,
+        business_connection_id: str | None = None,
     ) -> Any:
         payload: dict[str, Any] = {"chat_id": chat_id, "message_id": message_id, "text": text}
         if reply_markup is not None:
             payload["reply_markup"] = reply_markup
+        if business_connection_id:
+            payload["business_connection_id"] = business_connection_id
         return await self.call("editMessageText", payload)
 
     async def edit_message_caption(
@@ -288,10 +291,13 @@ class TelegramBotApi:
         message_id: int,
         caption: str,
         reply_markup: dict[str, Any] | None = None,
+        business_connection_id: str | None = None,
     ) -> Any:
         payload: dict[str, Any] = {"chat_id": chat_id, "message_id": message_id, "caption": caption}
         if reply_markup is not None:
             payload["reply_markup"] = reply_markup
+        if business_connection_id:
+            payload["business_connection_id"] = business_connection_id
         return await self.call("editMessageCaption", payload)
 
     async def edit_message_media(
@@ -302,6 +308,7 @@ class TelegramBotApi:
         media: str,
         caption: str,
         reply_markup: dict[str, Any] | None = None,
+        business_connection_id: str | None = None,
     ) -> Any:
         if media_type not in {"photo", "video"}:
             raise TelegramApiError("editMessageMedia", "Noma’lum media turi")
@@ -312,6 +319,8 @@ class TelegramBotApi:
         }
         if reply_markup is not None:
             payload["reply_markup"] = reply_markup
+        if business_connection_id:
+            payload["business_connection_id"] = business_connection_id
         return await self.call("editMessageMedia", payload)
 
     async def forward_message(

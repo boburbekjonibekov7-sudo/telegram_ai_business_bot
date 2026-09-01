@@ -241,8 +241,8 @@ class AdminPanelAndApkTests(unittest.TestCase):
             self.sent.append(item)
             return {"message_id": 12}
 
-        async def edit_message_media(self, chat_id, message_id, media_type, media, caption, reply_markup=None):
-            item = {"chat_id": chat_id, "message_id": message_id, "media_type": media_type, "media": media, "caption": caption, "reply_markup": reply_markup}
+        async def edit_message_media(self, chat_id, message_id, media_type, media, caption, reply_markup=None, business_connection_id=None):
+            item = {"chat_id": chat_id, "message_id": message_id, "media_type": media_type, "media": media, "caption": caption, "reply_markup": reply_markup, "business_connection_id": business_connection_id}
             self.edited_media.append(item)
             self.sent.append(item)
             return True
@@ -288,8 +288,12 @@ class AdminPanelAndApkTests(unittest.TestCase):
             self.callback_answers.append((callback_query_id, text, show_alert))
             return True
 
-        async def edit_message_text(self, chat_id, message_id, text, reply_markup=None):
-            self.sent.append({"chat_id": chat_id, "message_id": message_id, "text": text, "reply_markup": reply_markup})
+        async def edit_message_text(self, chat_id, message_id, text, reply_markup=None, business_connection_id=None):
+            self.sent.append({"chat_id": chat_id, "message_id": message_id, "text": text, "reply_markup": reply_markup, "business_connection_id": business_connection_id})
+            return True
+
+        async def edit_message_caption(self, chat_id, message_id, caption, reply_markup=None, business_connection_id=None):
+            self.sent.append({"chat_id": chat_id, "message_id": message_id, "caption": caption, "reply_markup": reply_markup, "business_connection_id": business_connection_id})
             return True
 
     class FakeAI:
@@ -606,17 +610,10 @@ class AdminPanelAndApkTests(unittest.TestCase):
         user = {"id": 1255}
         base = {"chat": {"id": 1255}, "message_id": 10}
         asyncio.run(bot.process_update({"callback_query": {"id": "auto-list", "from": user, "data": "menu:auto_replies", "message": base}}))
-        self.assertNotIn("Buyruqlar ruxsati", bot.telegram.edited_media[-1]["caption"])
-        self.assertFalse(any(button["callback_data"] == "auto:permissions" for row in bot.telegram.edited_media[-1]["reply_markup"]["inline_keyboard"] for button in row))
-        asyncio.run(bot.process_update({"callback_query": {"id": "settings-commands", "from": user, "data": "settings:commands", "message": base}}))
-        self.assertIn("Hamma / Hech kim", bot.telegram.edited_media[-1]["caption"])
+        self.assertIn(".help ni ishlatish: Hamma", bot.telegram.edited_media[-1]["caption"])
         asyncio.run(bot.process_update({"callback_query": {"id": "auto-help-off", "from": user, "data": "auto:toggle:help", "message": base}}))
-        self.assertEqual(bot.store.get_user_setting(1255, "auto_reply_help_permission"), "")
-        self.assertIn("Hech kim", bot.telegram.edited_media[-1]["caption"])
-        self.assertIn("✅ Ha", [button["text"] for row in bot.telegram.edited_media[-1]["reply_markup"]["inline_keyboard"] for button in row])
-        yes_data = bot.telegram.edited_media[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
-        asyncio.run(bot.process_update({"callback_query": {"id": "auto-help-yes", "from": user, "data": yes_data, "message": base}}))
         self.assertEqual(bot.store.get_user_setting(1255, "auto_reply_help_permission"), "none")
+        self.assertEqual(bot.telegram.callback_answers[-1], ("auto-help-off", ".help buyrug‘i: Hech kim ✅", True))
         self.assertIn(".help ni ishlatish: Hech kim", bot.telegram.edited_media[-1]["caption"])
 
     def test_profile_auto_replies_settings_media_callbacks_edit_one_message(self) -> None:
@@ -733,19 +730,18 @@ class AdminPanelAndApkTests(unittest.TestCase):
         bot = self._bot()
         user = {"id": 1265}
         base = {"chat": {"id": 1265}, "message_id": 10}
-        for callback_id, data, key, expected, label in (
-            ("edit-on", "settings:edit:toggle", "edit_notify_enabled", "1", "Tahrirlangan xabarlarni bildirish"),
-            ("edit-off", "settings:edit:toggle", "edit_notify_enabled", "0", "Tahrirlangan xabarlarni bildirish"),
-            ("delete-off", "settings:delete:toggle", "delete_notify_enabled", "0", "O‘chirilgan xabarlarni bildirish"),
-            ("delete-on", "settings:delete:toggle", "delete_notify_enabled", "1", "O‘chirilgan xabarlarni bildirish"),
+        asyncio.run(bot.process_update({"callback_query": {"id": "edit-open", "from": user, "data": "settings:edit", "message": base}}))
+        for callback_id, data, key, label in (
+            ("edit-on", "settings:edit:toggle", "edit_notify_enabled", "Tahrirlangan xabarlarni bildirish"),
+            ("edit-off", "settings:edit:toggle", "edit_notify_enabled", "Tahrirlangan xabarlarni bildirish"),
+            ("delete-off", "settings:delete:toggle", "delete_notify_enabled", "O‘chirilgan xabarlarni bildirish"),
+            ("delete-on", "settings:delete:toggle", "delete_notify_enabled", "O‘chirilgan xabarlarni bildirish"),
         ):
             asyncio.run(bot.process_update({"callback_query": {"id": callback_id, "from": user, "data": data, "message": base}}))
-            self.assertNotEqual(bot.store.get_user_setting(1265, key), expected)
-            self.assertIn("✅ Ha", " ".join(button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row))
-            yes_data = bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
-            asyncio.run(bot.process_update({"callback_query": {"id": callback_id + "-yes", "from": user, "data": yes_data, "message": base}}))
+            expected = "1" if callback_id in {"edit-on", "delete-on"} else "0"
             self.assertEqual(bot.store.get_user_setting(1265, key), expected)
-            self.assertEqual(bot.telegram.callback_answers[-1][0], callback_id + "-yes")
+            state = "yoqildi 🔔" if expected == "1" else "o‘chirildi 🔕"
+            self.assertEqual(bot.telegram.callback_answers[-1], (callback_id, f"{label} {state}!", True))
 
     def test_all_settings_toggles_switch_and_show_confirmation(self) -> None:
         bot = self._bot()
@@ -758,19 +754,22 @@ class AdminPanelAndApkTests(unittest.TestCase):
             ("currency-toggle", "settings:currency", "Valyuta miqdorini hisoblash", "settings_currency_enabled"),
         ):
             asyncio.run(bot.process_update({"callback_query": {"id": callback_id, "from": user, "data": data, "message": base}}))
-            self.assertEqual(bot.store.get_user_setting(1266, key), "")
-            self.assertTrue(any(question in bot.telegram.sent[-1]["text"] for question in ("yoqilsinmi?", "o‘chirilsinmi?")))
-            yes_data = bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
-            asyncio.run(bot.process_update({"callback_query": {"id": callback_id + "-yes", "from": user, "data": yes_data, "message": base}}))
             self.assertEqual(bot.store.get_user_setting(1266, key), "0")
+            self.assertEqual(bot.telegram.callback_answers[-1], (callback_id, f"{label} o‘chirildi 🔕!", True))
             labels = [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row]
             self.assertTrue(any(f"{label}: off" in item for item in labels))
+            callback_id_on = callback_id + "-on"
+            asyncio.run(bot.process_update({"callback_query": {"id": callback_id_on, "from": user, "data": data, "message": base}}))
+            self.assertEqual(bot.store.get_user_setting(1266, key), "1")
+            self.assertEqual(bot.telegram.callback_answers[-1], (callback_id_on, f"{label} yoqildi 🔔!", True))
+            labels = [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row]
+            self.assertTrue(any(f"{label}: on" in item for item in labels))
 
     def test_vip_edit_settings_screen_has_requested_controls(self) -> None:
         bot = self._bot()
         user = {"id": 1261}
         bot.store.grant_premium(1261, time.time() + 86400, "test")
-        asyncio.run(bot.process_update({"callback_query": {"id": "edit-settings", "from": user, "data": "settings:edit:details", "message": {"chat": {"id": 1261}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "edit-settings", "from": user, "data": "settings:edit", "message": {"chat": {"id": 1261}, "message_id": 10}}}))
         screen = bot.telegram.sent[-1]
         self.assertIn("Tahrirlangan xabarni yuborish: off", screen["text"])
         labels = [button["text"] for row in screen["reply_markup"]["inline_keyboard"] for button in row]
@@ -782,7 +781,7 @@ class AdminPanelAndApkTests(unittest.TestCase):
         bot = self._bot()
         user = {"id": 1265}
         bot.store.grant_premium(1265, time.time() + 86400, "test")
-        asyncio.run(bot.process_update({"callback_query": {"id": "delete-settings", "from": user, "data": "settings:delete:details", "message": {"chat": {"id": 1265}, "message_id": 10}}}))
+        asyncio.run(bot.process_update({"callback_query": {"id": "delete-settings", "from": user, "data": "settings:delete", "message": {"chat": {"id": 1265}, "message_id": 10}}}))
         screen = bot.telegram.sent[-1]
         self.assertIn("O‘chirilgan xabarni yuborish: on", screen["text"])
         self.assertIn("Yuborilgan va o‘chirilgan vaqtni ko‘rsatish: off", screen["text"])
@@ -795,23 +794,13 @@ class AdminPanelAndApkTests(unittest.TestCase):
         user = {"id": 1262}
         base = {"chat": {"id": 1262}, "message_id": 10}
         asyncio.run(bot.process_update({"callback_query": {"id": "free-edit", "from": user, "data": "settings:edit", "message": base}}))
-        self.assertEqual(bot.store.get_user_setting(1262, "edit_notify_enabled"), "")
-        yes_data = bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
-        asyncio.run(bot.process_update({"callback_query": {"id": "free-edit-yes", "from": user, "data": yes_data, "message": base}}))
+        self.assertIn("Tahrirlangan xabarni yuborish: off", bot.telegram.sent[-1]["text"])
+        asyncio.run(bot.process_update({"callback_query": {"id": "free-edit-on", "from": user, "data": "settings:edit:toggle", "message": base}}))
         self.assertEqual(bot.store.get_user_setting(1262, "edit_notify_enabled"), "1")
-        self.assertIn("Tahrirlash: on", " ".join(button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row))
-        asyncio.run(bot.process_update({"callback_query": {"id": "free-edit-details", "from": user, "data": "settings:edit:details", "message": base}}))
-        self.assertIn("Tahrirlangan xabarni yuborish: on", bot.telegram.sent[-1]["text"])
-        asyncio.run(bot.process_update({"callback_query": {"id": "free-edit-off", "from": user, "data": "settings:edit:toggle", "message": base}}))
-        yes_data = bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
-        asyncio.run(bot.process_update({"callback_query": {"id": "free-edit-off-yes", "from": user, "data": yes_data, "message": base}}))
-        self.assertEqual(bot.store.get_user_setting(1262, "edit_notify_enabled"), "0")
         asyncio.run(bot.process_update({"callback_query": {"id": "free-delete", "from": user, "data": "settings:delete", "message": base}}))
-        yes_data = bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
-        asyncio.run(bot.process_update({"callback_query": {"id": "free-delete-yes", "from": user, "data": yes_data, "message": base}}))
+        self.assertIn("O‘chirilgan xabarni yuborish: on", bot.telegram.sent[-1]["text"])
+        asyncio.run(bot.process_update({"callback_query": {"id": "free-delete-off", "from": user, "data": "settings:delete:toggle", "message": base}}))
         self.assertEqual(bot.store.get_user_setting(1262, "delete_notify_enabled"), "0")
-        asyncio.run(bot.process_update({"callback_query": {"id": "free-delete-details", "from": user, "data": "settings:delete:details", "message": base}}))
-        self.assertIn("O‘chirilgan xabarni yuborish: off", bot.telegram.sent[-1]["text"])
 
     def test_vip_edit_settings_choices_are_persistent(self) -> None:
         bot = self._bot()
@@ -820,17 +809,13 @@ class AdminPanelAndApkTests(unittest.TestCase):
         base = {"chat": {"id": 1263}, "message_id": 10}
         def click(callback_id: str, data: str) -> None:
             asyncio.run(bot.process_update({"callback_query": {"id": callback_id, "from": user, "data": data, "message": base}}))
-        click("details", "settings:edit:details")
-        click("toggle", "settings:edit:toggle")
-        yes_data = bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
-        click("toggle-yes", yes_data)
+        click("toggle", "settings:edit")
+        click("toggle-on", "settings:edit:toggle")
         click("dest-menu", "settings:edit:dest")
         click("dest-bot", "settings:edit:dest:bot")
         click("type-menu", "settings:edit:type")
         click("type-copy", "settings:edit:type:copy")
-        click("time", "settings:edit:time")
-        yes_data = bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
-        click("time-yes", yes_data)
+        click("time-on", "settings:edit:time")
         self.assertEqual(bot.store.get_user_setting(1263, "edit_notify_enabled"), "1")
         self.assertEqual(bot.store.get_user_setting(1263, "edit_notify_destination"), "bot")
         self.assertEqual(bot.store.get_user_setting(1263, "edit_notify_type"), "copy")
@@ -1071,17 +1056,10 @@ class AutoReplyCrudTests(unittest.TestCase):
         user = {"id": 1271}
         base = {"chat": {"id": 1271}, "message_id": 10}
         asyncio.run(bot.process_update({"callback_query": {"id": "perm-off", "from": user, "data": "auto:toggle:ping", "message": base}}))
-        self.assertEqual(bot.store.get_user_setting(1271, "auto_reply_ping_permission"), "")
-        yes_data = bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
-        asyncio.run(bot.process_update({"callback_query": {"id": "perm-off-yes", "from": user, "data": yes_data, "message": base}}))
         self.assertEqual(bot.store.get_user_setting(1271, "auto_reply_ping_permission"), "none")
         asyncio.run(bot.process_update({"callback_query": {"id": "perm-on", "from": user, "data": "auto:toggle:ping", "message": base}}))
-        yes_data = bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
-        asyncio.run(bot.process_update({"callback_query": {"id": "perm-on-yes", "from": user, "data": yes_data, "message": base}}))
         self.assertEqual(bot.store.get_user_setting(1271, "auto_reply_ping_permission"), "all")
-        self.assertEqual(bot.telegram.callback_answers[-1], ("perm-on-yes", ".ping: Hamma ✅", True))
-        labels = [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row]
-        self.assertTrue(any(".ping ni ishlatish: Hamma" in label for label in labels))
+        self.assertEqual(bot.telegram.callback_answers[-1], ("perm-on", ".ping buyrug‘i: Hamma ✅", True))
 
     def test_auto_reply_detail_toggles_and_exact_trigger_options(self) -> None:
         bot = self._bot()
@@ -1091,8 +1069,6 @@ class AutoReplyCrudTests(unittest.TestCase):
         asyncio.run(bot.process_update({"callback_query": {"id": "auto-view", "from": owner, "data": f"auto:view:{record_id}", "message": base}}))
         self.assertIn("Trigger: salom", bot.telegram.sent[-1]["text"])
         asyncio.run(bot.process_update({"callback_query": {"id": "auto-in-message", "from": owner, "data": f"auto:option:{record_id}:reply_in_message", "message": base}}))
-        yes_data = bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
-        asyncio.run(bot.process_update({"callback_query": {"id": "auto-in-message-yes", "from": owner, "data": yes_data, "message": base}}))
         self.assertTrue(bot.store.get_auto_reply(8645314130, record_id)["reply_in_message"])
         incoming = {"message_id": 83, "business_connection_id": "bc-1", "chat": {"id": 9004}, "from": {"id": 1273}, "text": "salom, yaxshimisiz?"}
         asyncio.run(bot.process_update({"business_message": incoming}))
@@ -1103,11 +1079,11 @@ class AutoReplyCrudTests(unittest.TestCase):
         bot.store.set_setting("start_media_file_id", "start-photo")
         calls = []
 
-        async def fail_media(chat_id, message_id, media_type, media, caption, reply_markup=None):
+        async def fail_media(chat_id, message_id, media_type, media, caption, reply_markup=None, business_connection_id=None):
             calls.append(("media", message_id))
             raise TelegramApiError("editMessageMedia", "message is not modified")
 
-        async def caption(chat_id, message_id, text, reply_markup=None):
+        async def caption(chat_id, message_id, text, reply_markup=None, business_connection_id=None):
             calls.append(("caption", message_id, text))
             bot.telegram.sent.append({"chat_id": chat_id, "message_id": message_id, "caption": text, "reply_markup": reply_markup})
             return True
@@ -1120,6 +1096,62 @@ class AutoReplyCrudTests(unittest.TestCase):
         self.assertEqual(calls[1][0:2], ("caption", 77))
         self.assertEqual(bot.telegram.sent[-1]["message_id"], 77)
         self.assertIn("@InfoUchihaBot sozlamalari", bot.telegram.sent[-1]["caption"])
+
+class BusinessCallbackButtonsTests(unittest.TestCase):
+    """
+    Regression: Telegram Business chatidagi xabarga tikilgan tugmalar bosilganda
+    (masalan .settings yoki .list dan keyin) editMessage* chaqiruviga
+    business_connection_id albatta yuborilishi kerak, aks holda Telegram
+    xabarni tahrirlashni rad etadi va tugma "ishlamayotgandek" ko'rinadi.
+    """
+
+    def _bot(self):
+        return AdminPanelAndApkTests._bot(AdminPanelAndApkTests())
+
+    def test_settings_button_inside_business_chat_passes_connection_id(self) -> None:
+        bot = self._bot()
+        asyncio.run(bot.process_update({
+            "callback_query": {
+                "id": "biz-cb-1",
+                "from": {"id": 8645314130},
+                "data": "menu:settings",
+                "business_connection_id": "biz-conn-42",
+                "message": {"chat": {"id": 555}, "message_id": 99},
+            }
+        }))
+        edited = [item for item in bot.telegram.sent if item.get("message_id") == 99]
+        self.assertTrue(edited, "editMessage* chaqirilmadi")
+        self.assertEqual(edited[-1].get("business_connection_id"), "biz-conn-42")
+
+    def test_auto_replies_list_button_inside_business_chat_passes_connection_id(self) -> None:
+        bot = self._bot()
+        asyncio.run(bot.process_update({
+            "callback_query": {
+                "id": "biz-cb-2",
+                "from": {"id": 8645314130},
+                "data": "menu:auto_replies",
+                "business_connection_id": "biz-conn-77",
+                "message": {"chat": {"id": 555}, "message_id": 100},
+            }
+        }))
+        edited = [item for item in bot.telegram.sent if item.get("message_id") == 100]
+        self.assertTrue(edited, "editMessage* chaqirilmadi")
+        self.assertEqual(edited[-1].get("business_connection_id"), "biz-conn-77")
+
+    def test_normal_private_chat_callback_has_no_connection_id(self) -> None:
+        bot = self._bot()
+        asyncio.run(bot.process_update({
+            "callback_query": {
+                "id": "normal-cb-1",
+                "from": {"id": 8645314130},
+                "data": "menu:settings",
+                "message": {"chat": {"id": 8645314130}, "message_id": 101},
+            }
+        }))
+        edited = [item for item in bot.telegram.sent if item.get("message_id") == 101]
+        self.assertTrue(edited)
+        self.assertIsNone(edited[-1].get("business_connection_id"))
+
 
 if __name__ == "__main__":
     unittest.main()

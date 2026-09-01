@@ -56,7 +56,11 @@ COMMANDS_PAGE_2_TEXT = """🤖 Chatbot buyruqlari — davom:
 .checklist band1, band2 — ☑️ Vazifalar ro‘yxati!"""
 GUIDE_CONNECT_CAPTION = "🤖 Chatbotni ulash qo‘llanmasi"
 GUIDE_USAGE_CAPTION = "🤖 Chatbotdan foydalanish qo‘llanmasi"
-AUTO_REPLY_COMMANDS = ("help", "ping", "ai", "down", "music", "type", "emoji", "dice", "checklist", "info")
+AUTO_REPLY_COMMANDS = (
+    "help", "ping", "ai", "down", "music", "type", "emoji", "dice", "checklist", "info",
+    "settings", "list", "add", "edit", "delete", "send", "soat", "online", "offline",
+    "dice1", "dice2", "dice3", "dice4", "dice5", "dice6",
+)
 # Native Telegram sendDice faqat shu 6 ta emoji bilan ishlaydi (Bot API cheklovi).
 DICE_EMOJIS = ("🎲", "🎯", "🏀", "⚽", "🎳", "🎰")
 # .emoji buyrug'i uchun "premium" ko'rinishdagi belgilangan harflar (unicode enclosed alphanumerics).
@@ -730,6 +734,10 @@ class BusinessAiBot:
         message = callback.get("message") or {}
         chat_id = self._chat_id(message)
         message_id = message.get("message_id")
+        # Agar tugma Telegram Business chatidagi xabarga tegishli bo'lsa, xabarni
+        # tahrirlash uchun business_connection_id albatta kerak — aks holda
+        # Telegram editMessage* chaqiruvini rad etadi va tugmalar "ishlamaydi".
+        business_connection_id = callback.get("business_connection_id") or None
         is_owner = isinstance(user_id, int) and user_id == OWNER_ADMIN_ID
         is_premium = isinstance(user_id, int) and self._has_premium(user_id)
         if data == "subscription:check":
@@ -758,7 +766,7 @@ class BusinessAiBot:
             "settings:edit:toggle", "settings:edit:time", "settings:delete:toggle", "settings:delete:time",
             "settings:apk", "settings:typing", "settings:read", "settings:currency",
         }
-        if data not in toggle_callbacks and not data.startswith(("auto:toggle:", "auto:option:", "confirm:")):
+        if data not in toggle_callbacks and not data.startswith("auto:toggle:"):
             await self.telegram.answer_callback_query(callback_id)
         if not isinstance(chat_id, int) or not isinstance(message_id, int):
             return
@@ -884,121 +892,61 @@ class BusinessAiBot:
             await self._send_start_screen(chat_id, edit_message_id=message_id, user=sender)
             return
         if data == "menu:commands":
-            await self._render_media_or_text(chat_id, COMMANDS_PAGE_1_TEXT, self._commands_page_1_keyboard(), "commands", message_id)
+            await self._render_media_or_text(chat_id, COMMANDS_PAGE_1_TEXT, self._commands_page_1_keyboard(), "commands", message_id, business_connection_id=business_connection_id)
             return
         if data == "commands:next":
-            await self._render_media_or_text(chat_id, COMMANDS_PAGE_2_TEXT, self._commands_page_2_keyboard(), "commands", message_id)
+            await self._render_media_or_text(chat_id, COMMANDS_PAGE_2_TEXT, self._commands_page_2_keyboard(), "commands", message_id, business_connection_id=business_connection_id)
             return
         if data == "commands:back":
-            await self._render_media_or_text(chat_id, COMMANDS_PAGE_1_TEXT, self._commands_page_1_keyboard(), "commands", message_id)
+            await self._render_media_or_text(chat_id, COMMANDS_PAGE_1_TEXT, self._commands_page_1_keyboard(), "commands", message_id, business_connection_id=business_connection_id)
             return
         if data == "menu:guide":
-            await self._render_media_or_text(chat_id, self._guide_caption(GUIDE_CONNECT_CAPTION), self._guide_keyboard(), "connect_guide", message_id)
+            await self._render_media_or_text(chat_id, self._guide_caption(GUIDE_CONNECT_CAPTION), self._guide_keyboard(), "connect_guide", message_id, business_connection_id=business_connection_id)
             return
         if data == "guide:home":
-            await self._render_media_or_text(chat_id, self._guide_caption(GUIDE_CONNECT_CAPTION), self._guide_keyboard(), "connect_guide", message_id)
+            await self._render_media_or_text(chat_id, self._guide_caption(GUIDE_CONNECT_CAPTION), self._guide_keyboard(), "connect_guide", message_id, business_connection_id=business_connection_id)
             return
         if data == "guide:usage":
-            await self._render_media_or_text(chat_id, self._guide_caption(GUIDE_USAGE_CAPTION), self._guide_usage_keyboard(), "usage_guide", message_id)
+            await self._render_media_or_text(chat_id, self._guide_caption(GUIDE_USAGE_CAPTION), self._guide_usage_keyboard(), "usage_guide", message_id, business_connection_id=business_connection_id)
             return
         if data == "menu:profile":
-            await self._render_media_or_text(chat_id, self._profile_text(user_id), self._profile_keyboard(), "start", message_id)
+            await self._render_media_or_text(chat_id, self._profile_text(user_id), self._profile_keyboard(), "start", message_id, business_connection_id=business_connection_id)
             return
         if data == "profile:home":
-            await self._render_media_or_text(chat_id, self._profile_text(user_id), self._profile_keyboard(), "start", message_id)
+            await self._render_media_or_text(chat_id, self._profile_text(user_id), self._profile_keyboard(), "start", message_id, business_connection_id=business_connection_id)
             return
         if data == "profile:vip":
-            await self._render_media_or_text(chat_id, VIP_FEATURES_TEXT, self._vip_features_keyboard(), "start", message_id)
+            await self._render_media_or_text(chat_id, VIP_FEATURES_TEXT, self._vip_features_keyboard(), "start", message_id, business_connection_id=business_connection_id)
             return
         if data == "profile:topup":
-            await self._render_media_or_text(chat_id, "💳 Balansni to‘ldirish\n\nTo‘lov usulini tanlang:", self._topup_keyboard(), "start", message_id)
+            await self._render_media_or_text(chat_id, "💳 Balansni to‘ldirish\n\nTo‘lov usulini tanlang:", self._topup_keyboard(), "start", message_id, business_connection_id=business_connection_id)
             return
         if data == "menu:settings":
-            await self._render_media_or_text(chat_id, self._settings_text(user_id), self._settings_keyboard(user_id), "start", message_id)
+            await self._render_media_or_text(chat_id, self._settings_text(user_id), self._settings_keyboard(user_id), "start", message_id, business_connection_id=business_connection_id)
             return
-        if data.startswith("confirm:yes:") or data.startswith("confirm:no:"):
-            accepted = data.startswith("confirm:yes:")
-            payload = data.split(":", 2)[2]
-            parts = payload.split(":")
-            if len(parts) < 3 or parts[0] != "confirm":
-                await self.telegram.answer_callback_query(callback_id, "Tasdiqlash ma’lumoti topilmadi.", True)
-                return
-            kind = parts[1]
-            if kind == "setting" and len(parts) >= 5 and isinstance(user_id, int):
-                key, desired, view = parts[2], parts[3], parts[4]
-                detail_kind = "delete" if key.startswith("delete_") else "edit"
-                back_data = f"settings:{detail_kind}:details" if view == "detail" else "menu:settings"
-                if accepted:
-                    self._set_user_setting(user_id, key, "1" if desired == "1" else "0")
-                    await self.telegram.answer_callback_query(callback_id, "✅ Holat saqlandi.", True)
-                else:
-                    await self.telegram.answer_callback_query(callback_id, "O‘zgartirilmadi.", True)
-                if view == "detail":
-                    await self._render_media_or_text(chat_id, self._settings_feature_text(detail_kind, user_id), self._settings_feature_keyboard(detail_kind, user_id), "start", message_id)
-                else:
-                    await self._render_media_or_text(chat_id, self._settings_text(user_id), self._settings_keyboard(user_id), "start", message_id)
-                return
-            if kind == "permission" and len(parts) >= 4 and isinstance(user_id, int):
-                command, desired = parts[2], parts[3]
-                if command not in AUTO_REPLY_COMMANDS or desired not in {"all", "none"}:
-                    await self.telegram.answer_callback_query(callback_id, "Buyruq topilmadi.", True)
-                    return
-                if accepted:
-                    self._set_user_setting(user_id, f"auto_reply_{command}_permission", desired)
-                    status = "Hamma" if desired == "all" else "Hech kim"
-                    self._set_user_setting(user_id, "auto_reply_notice", f"✅ .{command} endi {status} uchun ishlaydi.")
-                    await self.telegram.answer_callback_query(callback_id, f".{command}: {status} ✅", True)
-                else:
-                    await self.telegram.answer_callback_query(callback_id, "O‘zgartirilmadi.", True)
-                await self._render_media_or_text(chat_id, self._auto_permissions_text(user_id), self._auto_permissions_keyboard(user_id), "start", message_id)
-                return
-            if kind == "record" and len(parts) >= 5 and isinstance(user_id, int) and parts[2].isdigit():
-                record_id, option, desired = int(parts[2]), parts[3], parts[4]
-                record = self._get_auto_reply(user_id, record_id)
-                if record and option in {"enabled", "reply_in_message", "reply_to_owner"} and desired in {"0", "1"}:
-                    if accepted:
-                        setter = getattr(self.store, "set_auto_reply_option", None)
-                        changed = bool(callable(setter) and setter(user_id, record_id, option, desired == "1"))
-                        await self.telegram.answer_callback_query(callback_id, "✅ Holat saqlandi." if changed else "Holatni saqlab bo‘lmadi.", True)
-                    else:
-                        await self.telegram.answer_callback_query(callback_id, "O‘zgartirilmadi.", True)
-                    record = self._get_auto_reply(user_id, record_id) or record
-                    await self._render_media_or_text(chat_id, self._auto_reply_detail_text(record), self._auto_reply_detail_keyboard(record), "start", message_id)
-                else:
-                    await self.telegram.answer_callback_query(callback_id, "Avto javob topilmadi.", True)
-                return
-            await self.telegram.answer_callback_query(callback_id, "Tasdiqlash ma’lumoti topilmadi.", True)
-            return
-        if data in {"settings:edit", "settings:delete"}:
-            kind = "edit" if data == "settings:edit" else "delete"
-            key = f"{kind}_notify_enabled"
-            default = "0" if kind == "edit" else "1"
-            current = self._user_setting(user_id, key, default) == "1"
-            label = "Tahrirlash" if kind == "edit" else "O‘chirishlar"
-            text, markup = self._setting_confirmation(key, current, label, "main", "menu:settings")
-            await self._render_media_or_text(chat_id, text, markup, "start", message_id)
-            return
-        if data in {"settings:edit:details", "settings:delete:details", "settings:deletions"}:
-            kind = "delete" if data != "settings:edit:details" else "edit"
-            await self._render_media_or_text(chat_id, self._settings_feature_text(kind, user_id), self._settings_feature_keyboard(kind, user_id), "start", message_id)
+        if data in {"settings:edit", "settings:delete", "settings:deletions"}:
+            kind = "delete" if data != "settings:edit" else "edit"
+            await self._render_media_or_text(chat_id, self._settings_feature_text(kind, user_id), self._settings_feature_keyboard(kind, user_id), "start", message_id, business_connection_id=business_connection_id)
             return
         if data.startswith(("settings:edit:", "settings:delete:")):
             parts = data.split(":")
             kind = parts[1]
             field = parts[2] if len(parts) > 2 else ""
             if len(parts) == 3 and field in {"dest", "type"}:
-                await self._render_media_or_text(chat_id, self._settings_feature_text(kind, user_id), self._settings_option_keyboard(kind, field), "start", message_id)
+                await self._render_media_or_text(chat_id, self._settings_feature_text(kind, user_id), self._settings_option_keyboard(kind, field), "start", message_id, business_connection_id=business_connection_id)
                 return
             if len(parts) == 3 and field in {"toggle", "time"}:
                 key = f"{kind}_notify_enabled" if field == "toggle" else f"{kind}_notify_timestamp"
                 default = "0" if (kind == "edit" or field == "time") else "1"
                 current = self._user_setting(user_id, key, default) == "1"
+                enabled = not current
+                self._set_user_setting(user_id, key, "1" if enabled else "0")
                 if field == "toggle":
                     label = "Tahrirlangan xabarlarni bildirish" if kind == "edit" else "O‘chirilgan xabarlarni bildirish"
                 else:
                     label = "Yuborilgan va tahrirlangan vaqtni ko‘rsatish" if kind == "edit" else "Yuborilgan va o‘chirilgan vaqtni ko‘rsatish"
-                text, markup = self._setting_confirmation(key, current, label, "detail", f"settings:{kind}:details")
-                await self._render_media_or_text(chat_id, text, markup, "start", message_id)
+                await self.telegram.answer_callback_query(callback_id, f"{label} {'yoqildi 🔔' if enabled else 'o‘chirildi 🔕'}!", True)
+                await self._render_media_or_text(chat_id, self._settings_feature_text(kind, user_id), self._settings_feature_keyboard(kind, user_id), "start", message_id, business_connection_id=business_connection_id)
                 return
             if len(parts) == 4:
                 value = parts[3]
@@ -1008,10 +956,10 @@ class BusinessAiBot:
                     self._set_user_setting(user_id, f"{kind}_notify_type", value)
                 else:
                     return
-                await self._render_media_or_text(chat_id, self._settings_feature_text(kind, user_id), self._settings_feature_keyboard(kind, user_id), "start", message_id)
+                await self._render_media_or_text(chat_id, self._settings_feature_text(kind, user_id), self._settings_feature_keyboard(kind, user_id), "start", message_id, business_connection_id=business_connection_id)
                 return
         if data == "settings:commands":
-            await self._render_media_or_text(chat_id, self._auto_permissions_text(user_id), self._auto_permissions_keyboard(user_id), "start", message_id)
+            await self._render_media_or_text(chat_id, "📗 Buyruqlar ruxsati\n\nQaysi buyruqni kim ishlatishini Telegram Business sozlamalaridan belgilaysiz.", self._settings_back_keyboard(), "start", message_id, business_connection_id=business_connection_id)
             return
         toggle_settings = {
             "settings:apk": ("settings_apk_delete_enabled", "1", "APK o‘chirish"),
@@ -1022,28 +970,30 @@ class BusinessAiBot:
         if data in toggle_settings:
             key, default, label = toggle_settings[data]
             current = self._user_setting(user_id, key, default) == "1"
-            text, markup = self._setting_confirmation(key, current, label, "main", "menu:settings")
-            await self._render_media_or_text(chat_id, text, markup, "start", message_id)
+            enabled = not current
+            self._set_user_setting(user_id, key, "1" if enabled else "0")
+            await self.telegram.answer_callback_query(callback_id, f"{label} {'yoqildi 🔔' if enabled else 'o‘chirildi 🔕'}!", True)
+            await self._render_media_or_text(chat_id, self._settings_text(user_id), self._settings_keyboard(user_id), "start", message_id, business_connection_id=business_connection_id)
             return
         if data in {"settings:pro", "settings:business"}:
             title = "🧙 Pro funksiyalar" if data == "settings:pro" else "😎 Biznes funksiyalar"
-            await self._render_media_or_text(chat_id, f"{title}\n\nVIP 💎 imkoniyatlari uchun quyidagi tugmani bosing.", {"inline_keyboard": [[{"text": "VIP 💎", "callback_data": "profile:vip"}], [{"text": "🔙 Sozlamalar", "callback_data": "menu:settings"}]]}, "start", message_id)
+            await self._render_media_or_text(chat_id, f"{title}\n\nVIP 💎 imkoniyatlari uchun quyidagi tugmani bosing.", {"inline_keyboard": [[{"text": "VIP 💎", "callback_data": "profile:vip"}], [{"text": "🔙 Sozlamalar", "callback_data": "menu:settings"}]]}, "start", message_id, business_connection_id=business_connection_id)
             return
         if data == "menu:auto_replies":
-            await self._render_media_or_text(chat_id, self._auto_replies_text(user_id), self._auto_replies_keyboard(user_id), "start", message_id)
+            await self._render_media_or_text(chat_id, self._auto_replies_text(user_id), self._auto_replies_keyboard(user_id), "start", message_id, business_connection_id=business_connection_id)
             return
         if data == "auto:add":
             self._set_user_session(user_id, "auto_add_trigger")
-            await self._render_media_or_text(chat_id, "➕ Avto javob qo‘shish\n\nTrigger so‘z yoki iborani yuboring. Bekor qilish: /cancel", self._auto_reply_back_keyboard(), "start", message_id)
+            await self._render_media_or_text(chat_id, "➕ Avto javob qo‘shish\n\nTrigger so‘z yoki iborani yuboring. Bekor qilish: /cancel", self._auto_reply_back_keyboard(), "start", message_id, business_connection_id=business_connection_id)
             return
         if data == "auto:permissions":
-            await self._render_media_or_text(chat_id, self._auto_permissions_text(user_id), self._auto_permissions_keyboard(user_id), "start", message_id)
+            await self._render_media_or_text(chat_id, self._auto_permissions_text(user_id), self._auto_permissions_keyboard(), "start", message_id, business_connection_id=business_connection_id)
             return
         if data.startswith("auto:view:"):
             record_id = self._parse_record_id(data)
             record = self._get_auto_reply(user_id, record_id) if record_id is not None else None
             if record:
-                await self._render_media_or_text(chat_id, self._auto_reply_detail_text(record), self._auto_reply_detail_keyboard(record), "start", message_id)
+                await self._render_media_or_text(chat_id, self._auto_reply_detail_text(record), self._auto_reply_detail_keyboard(record), "start", message_id, business_connection_id=business_connection_id)
             else:
                 await self.telegram.answer_callback_query(callback_id, "Avto javob topilmadi.", True)
             return
@@ -1051,7 +1001,7 @@ class BusinessAiBot:
             record_id = self._parse_record_id(data)
             record = self._get_auto_reply(user_id, record_id) if record_id is not None else None
             if record:
-                await self._render_media_or_text(chat_id, "🗑 Avto javobni o‘chirishni tasdiqlaysizmi?\n\n" + str(record.get("trigger") or ""), self._auto_delete_confirm_keyboard(record_id), "start", message_id)
+                await self._render_media_or_text(chat_id, "🗑 Avto javobni o‘chirishni tasdiqlaysizmi?\n\n" + str(record.get("trigger") or ""), self._auto_delete_confirm_keyboard(record_id), "start", message_id, business_connection_id=business_connection_id)
             else:
                 await self.telegram.answer_callback_query(callback_id, "Avto javob topilmadi.", True)
             return
@@ -1060,7 +1010,7 @@ class BusinessAiBot:
             deleted = self._delete_auto_reply(user_id, record_id) if isinstance(user_id, int) and record_id is not None else False
             notice = "✅ Avto javob o‘chirildi." if deleted else "Avto javob topilmadi."
             await self.telegram.answer_callback_query(callback_id, notice, True)
-            await self._render_media_or_text(chat_id, self._auto_replies_text(user_id), self._auto_replies_keyboard(user_id), "start", message_id)
+            await self._render_media_or_text(chat_id, self._auto_replies_text(user_id), self._auto_replies_keyboard(user_id), "start", message_id, business_connection_id=business_connection_id)
             return
         if data.startswith("auto:option:"):
             parts = data.split(":")
@@ -1068,8 +1018,12 @@ class BusinessAiBot:
             option = parts[3] if len(parts) > 3 else ""
             record = self._get_auto_reply(user_id, record_id)
             if record and option in {"enabled", "reply_in_message", "reply_to_owner"} and isinstance(user_id, int):
-                text, markup = self._record_confirmation(record, option)
-                await self._render_media_or_text(chat_id, text, markup, "start", message_id)
+                enabled = not bool(record.get(option, False))
+                setter = getattr(self.store, "set_auto_reply_option", None)
+                changed = bool(callable(setter) and setter(user_id, record_id, option, enabled))
+                await self.telegram.answer_callback_query(callback_id, ("✅ Holat yangilandi." if changed else "Holatni yangilab bo‘lmadi."), True)
+                record = self._get_auto_reply(user_id, record_id) or record
+                await self._render_media_or_text(chat_id, self._auto_reply_detail_text(record), self._auto_reply_detail_keyboard(record), "start", message_id, business_connection_id=business_connection_id)
             return
         if data.startswith("auto:edit:"):
             record_id = self._parse_record_id(data)
@@ -1078,7 +1032,7 @@ class BusinessAiBot:
                 await self.telegram.answer_callback_query(callback_id, "Avto javob topilmadi.", True)
                 return
             self._set_user_session(user_id, "auto_edit", {"record_id": record_id})
-            await self._render_media_or_text(chat_id, "✏️ Avto javobni tahrirlash\n\nYangi trigger va javobni quyidagi ko‘rinishda yuboring:\ntrigger | javob\n\nBekor qilish: /cancel", self._auto_reply_back_keyboard(), "start", message_id)
+            await self._render_media_or_text(chat_id, "✏️ Avto javobni tahrirlash\n\nYangi trigger va javobni quyidagi ko‘rinishda yuboring:\ntrigger | javob\n\nBekor qilish: /cancel", self._auto_reply_back_keyboard(), "start", message_id, business_connection_id=business_connection_id)
             return
         if data.startswith("auto:toggle:"):
             command = data.rsplit(":", 1)[-1]
@@ -1086,21 +1040,25 @@ class BusinessAiBot:
                 return
             key = f"auto_reply_{command}_permission"
             current = self._user_setting(user_id, key, "all")
-            text, markup = self._permission_confirmation(command, current, "auto:permissions")
-            await self._render_media_or_text(chat_id, text, markup, "start", message_id)
+            enabled_for_all = current != "all"
+            self._set_user_setting(user_id, key, "all" if enabled_for_all else "none")
+            status = "Hamma" if enabled_for_all else "Hech kim"
+            self._set_user_setting(user_id, "auto_reply_notice", f"✅ .{command} endi {status} uchun ishlaydi.")
+            await self.telegram.answer_callback_query(callback_id, f".{command} buyrug‘i: {status} ✅", True)
+            await self._render_media_or_text(chat_id, self._auto_replies_text(user_id), self._auto_replies_keyboard(user_id), "start", message_id, business_connection_id=business_connection_id)
             return
         if data == "menu:about":
-            await self._render_media_or_text(chat_id, BOT_ABOUT_TEXT, self._about_keyboard(), "start", message_id)
+            await self._render_media_or_text(chat_id, BOT_ABOUT_TEXT, self._about_keyboard(), "start", message_id, business_connection_id=business_connection_id)
             return
         if data == "premium:status":
             text, markup = self._premium_panel_content(user_id)
-            await self._render_media_or_text(chat_id, text, markup, "start", message_id)
+            await self._render_media_or_text(chat_id, text, markup, "start", message_id, business_connection_id=business_connection_id)
             return
         if data == "premium:buy":
             await self._send_subscription_offer(chat_id, user_id, None, edit_message_id=message_id)
             return
         if data == "premium:role":
-            await self._render_media_or_text(chat_id, "Shaxsiy AI rolingizni o‘zgartirish uchun /rol Sizning uslubingiz... buyrug‘ini yuboring.", self._premium_role_keyboard(), "start", message_id)
+            await self._render_media_or_text(chat_id, "Shaxsiy AI rolingizni o‘zgartirish uchun /rol Sizning uslubingiz... buyrug‘ini yuboring.", self._premium_role_keyboard(), "start", message_id, business_connection_id=business_connection_id)
             return
         if data in {"admin:home", "admin:stats", "admin:role", "admin:pause", "admin:pause:toggle"}:
             if data == "admin:stats":
@@ -1126,9 +1084,9 @@ class BusinessAiBot:
                 text = self._admin_panel_text()
                 markup = self._admin_panel_keyboard(include_statistics=is_owner, include_main_menu=True, user_id=user_id, include_owner_tools=is_owner)
             try:
-                await self.telegram.edit_message_text(chat_id, message_id, text, markup)
+                await self.telegram.edit_message_text(chat_id, message_id, text, markup, business_connection_id=business_connection_id)
             except TelegramApiError:
-                await self._send_chunks(chat_id, text, None, None, markup)
+                await self._send_chunks(chat_id, text, business_connection_id, None, markup)
             return
         if data == "admin:role:reset":
             if is_owner:
@@ -1140,9 +1098,9 @@ class BusinessAiBot:
                     clearer(user_id)
                 reset_text = "✅ Shaxsiy AI roli standart holatga qaytarildi."
             try:
-                await self.telegram.edit_message_text(chat_id, message_id, reset_text, self._admin_back_keyboard())
+                await self.telegram.edit_message_text(chat_id, message_id, reset_text, self._admin_back_keyboard(), business_connection_id=business_connection_id)
             except TelegramApiError:
-                await self._send_chunks(chat_id, reset_text, None, None, self._admin_back_keyboard())
+                await self._send_chunks(chat_id, reset_text, business_connection_id, None, self._admin_back_keyboard())
 
     def _has_premium(self, user_id: int | None) -> bool:
         if user_id is None:
@@ -1291,7 +1249,6 @@ Qisqa qo‘llanma (ochish uchun bosing):
         return {"inline_keyboard": [
             [{"text": "🤝 Chatbotni sozlash", "url": "tg://settings/edit"}],
             [{"text": f"✏️ Tahrirlash: {'on' if edit_state else 'off'}", "callback_data": "settings:edit"}, {"text": f"🗑 O‘chirishlar: {'on' if delete_state else 'off'}", "callback_data": "settings:delete"}],
-            [{"text": "⚙️ Tahrirlash sozlamalari", "callback_data": "settings:edit:details"}, {"text": "⚙️ O‘chirish sozlamalari", "callback_data": "settings:delete:details"}],
             [{"text": f"🤖 APK o‘chirish: {'on' if self._user_setting(uid, 'settings_apk_delete_enabled', '1') == '1' else 'off'}", "callback_data": "settings:apk"}, {"text": f"••• Yozmoqda: {'on' if self._user_setting(uid, 'settings_typing_enabled', '1') == '1' else 'off'}", "callback_data": "settings:typing"}],
             [{"text": f"✉️ Avto javob berganda xabarni o‘qish: {'on' if self._user_setting(uid, 'settings_read_enabled', '1') == '1' else 'off'}", "callback_data": "settings:read"}],
             [{"text": f"💱 Valyuta miqdorini hisoblash: {'on' if self._user_setting(uid, 'settings_currency_enabled', '1') == '1' else 'off'}", "callback_data": "settings:currency"}],
@@ -1303,36 +1260,6 @@ Qisqa qo‘llanma (ochish uchun bosing):
     @staticmethod
     def _settings_back_keyboard() -> dict[str, Any]:
         return {"inline_keyboard": [[{"text": "🔙 Sozlamalar", "callback_data": "menu:settings"}], [{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}]]}
-
-    @staticmethod
-    def _toggle_confirmation_keyboard(yes_data: str, no_data: str, back_data: str) -> dict[str, Any]:
-        return {"inline_keyboard": [
-            [{"text": "✅ Ha", "callback_data": yes_data}, {"text": "❌ Yo‘q", "callback_data": no_data}],
-            [{"text": "🔙 Orqaga", "callback_data": back_data}],
-        ]}
-
-    @staticmethod
-    def _toggle_confirmation_text(label: str, desired_enabled: bool) -> str:
-        question = "yoqilsinmi?" if desired_enabled else "o‘chirilsinmi?"
-        return f"❓ {label} {question}\n\nTasdiqlash uchun inline tugmalardan birini bosing."
-
-    def _setting_confirmation(self, key: str, current: bool, label: str, view: str, back_data: str) -> tuple[str, dict[str, Any]]:
-        desired = "1" if not current else "0"
-        payload = f"confirm:setting:{key}:{desired}:{view}"
-        return self._toggle_confirmation_text(label, desired == "1"), self._toggle_confirmation_keyboard(f"confirm:yes:{payload}", f"confirm:no:{payload}", back_data)
-
-    def _permission_confirmation(self, command: str, current: str, back_data: str) -> tuple[str, dict[str, Any]]:
-        desired = "none" if current == "all" else "all"
-        status = "Hamma" if desired == "all" else "Hech kim"
-        payload = f"confirm:permission:{command}:{desired}"
-        return self._toggle_confirmation_text(f".{command} buyrug‘i {status} uchun", desired == "all"), self._toggle_confirmation_keyboard(f"confirm:yes:{payload}", f"confirm:no:{payload}", back_data)
-
-    def _record_confirmation(self, record: dict[str, object], option: str) -> tuple[str, dict[str, Any]]:
-        current = bool(record.get(option, False))
-        desired = "0" if current else "1"
-        labels = {"enabled": "Avto javob", "reply_in_message": "Xabar ichida soz bo‘lsa", "reply_to_owner": "O‘zimga javob bersin"}
-        payload = f"confirm:record:{int(record.get('id', 0))}:{option}:{desired}"
-        return self._toggle_confirmation_text(labels.get(option, option), desired == "1"), self._toggle_confirmation_keyboard(f"confirm:yes:{payload}", f"confirm:no:{payload}", f"auto:view:{int(record.get('id', 0))}")
 
     @staticmethod
     def _settings_option_keyboard(kind: str, field: str) -> dict[str, Any]:
@@ -1478,45 +1405,46 @@ Qisqa qo‘llanma (ochish uchun bosing):
         markup: dict[str, Any],
         slot: str | None = None,
         edit_message_id: int | None = None,
+        business_connection_id: str | None = None,
     ) -> None:
         media = self._media_config(slot) if slot else None
         if media:
             file_id, media_type = media
             if edit_message_id is not None:
                 try:
-                    await self.telegram.edit_message_media(chat_id, edit_message_id, media_type, file_id, self._media_caption(text), markup)
+                    await self.telegram.edit_message_media(chat_id, edit_message_id, media_type, file_id, self._media_caption(text), markup, business_connection_id=business_connection_id)
                     return
                 except (TelegramApiError, AttributeError) as exc:
                     LOGGER.warning("Media xabarini tahrirlashda xato slot=%s: %s", slot, exc)
                     try:
-                        await self.telegram.edit_message_caption(chat_id, edit_message_id, text, markup)
+                        await self.telegram.edit_message_caption(chat_id, edit_message_id, text, markup, business_connection_id=business_connection_id)
                         return
                     except (TelegramApiError, AttributeError) as caption_exc:
                         LOGGER.warning("Media caption/keyboard fallback ham ishlamadi slot=%s: %s", slot, caption_exc)
                         try:
-                            await self.telegram.edit_message_text(chat_id, edit_message_id, text, markup)
+                            await self.telegram.edit_message_text(chat_id, edit_message_id, text, markup, business_connection_id=business_connection_id)
                             return
                         except (TelegramApiError, AttributeError) as text_exc:
                             LOGGER.warning("Media text fallback ham ishlamadi slot=%s: %s", slot, text_exc)
             try:
                 if media_type == "video":
-                    await self.telegram.send_video(chat_id, file_id, self._media_caption(text), reply_markup=markup)
+                    await self.telegram.send_video(chat_id, file_id, self._media_caption(text), business_connection_id=business_connection_id, reply_markup=markup)
                 else:
-                    await self.telegram.send_photo(chat_id, file_id, self._media_caption(text), reply_markup=markup)
+                    await self.telegram.send_photo(chat_id, file_id, self._media_caption(text), business_connection_id=business_connection_id, reply_markup=markup)
                 return
             except TelegramApiError as exc:
                 LOGGER.warning("Konfiguratsiya qilingan media yuborilmadi slot=%s: %s", slot, exc)
         if edit_message_id is not None:
             try:
-                await self.telegram.edit_message_text(chat_id, edit_message_id, text, markup)
+                await self.telegram.edit_message_text(chat_id, edit_message_id, text, markup, business_connection_id=business_connection_id)
                 return
             except (TelegramApiError, AttributeError) as exc:
                 try:
-                    await self.telegram.edit_message_caption(chat_id, edit_message_id, text, markup)
+                    await self.telegram.edit_message_caption(chat_id, edit_message_id, text, markup, business_connection_id=business_connection_id)
                     return
                 except (TelegramApiError, AttributeError) as caption_exc:
                     LOGGER.warning("Text/caption media fallback ishlamadi: %s; %s", exc, caption_exc)
-        await self._send_chunks(chat_id, text, None, None, markup)
+        await self._send_chunks(chat_id, text, business_connection_id, None, markup)
 
     @staticmethod
     def _display_name(user: dict[str, Any] | None) -> str:
@@ -1572,7 +1500,14 @@ Qisqa qo‘llanma (ochish uchun bosing):
         await self._send_chunks(chat_id, start_text, None, reply_to, self._main_menu_keyboard())
 
     def _auto_replies_text(self, user_id: int | None) -> str:
-        lines = ["💬 Avto javoblar ro‘yxati", "", "Bu bo‘limda saqlangan avto javoblaringiz boshqariladi."]
+        notice = self._user_setting(user_id or 0, "auto_reply_notice", "")
+        lines = ["💬 Avto javoblar ro‘yxati"]
+        if notice:
+            lines.extend(["", notice])
+        lines.extend(["", "⚙️ Buyruqlar ruxsati:"])
+        for command in AUTO_REPLY_COMMANDS:
+            status = "Hamma" if self._user_setting(user_id or 0, f"auto_reply_{command}_permission", "all") == "all" else "Hech kim"
+            lines.append(f".{command} ni ishlatish: {status}")
         records = self._list_auto_replies(user_id)
         lines.extend(["", "📩 Shaxsiy avto javoblar:"])
         if records:
@@ -1593,6 +1528,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
                 {"text": "✏️ Tahrirlash", "callback_data": f"auto:edit:{record_id}"},
                 {"text": "🗑 O‘chirish", "callback_data": f"auto:delete:{record_id}"},
             ])
+        rows.append([{"text": "⚙️ Buyruqlar ruxsati", "callback_data": "auto:permissions"}])
         rows.append([{"text": "🔙 Orqaga", "callback_data": "menu:home"}])
         return {"inline_keyboard": rows}
 
@@ -1600,14 +1536,11 @@ Qisqa qo‘llanma (ochish uchun bosing):
         lines = ["⚙️ Buyruqlar ruxsati", "", "Har bir tugma bosilganda Hamma / Hech kim holati almashadi:"]
         for command in AUTO_REPLY_COMMANDS:
             status = "Hamma" if self._user_setting(user_id or 0, f"auto_reply_{command}_permission", "all") == "all" else "Hech kim"
-            lines.append(f".{command} ni ishlatish: {status}")
+            lines.append(f".{command}: {status}")
         return "\n".join(lines)
 
-    def _auto_permissions_keyboard(self, user_id: int | None = None) -> dict[str, Any]:
-        rows = []
-        for command in AUTO_REPLY_COMMANDS:
-            status = "Hamma" if self._user_setting(user_id or 0, f"auto_reply_{command}_permission", "all") == "all" else "Hech kim"
-            rows.append([{"text": f".{command} ni ishlatish: {status}", "callback_data": f"auto:toggle:{command}"}])
+    def _auto_permissions_keyboard(self) -> dict[str, Any]:
+        rows = [[{"text": f".{command}", "callback_data": f"auto:toggle:{command}"}] for command in AUTO_REPLY_COMMANDS]
         rows.extend([[{"text": "🔙 Avto javoblar ro‘yxati", "callback_data": "menu:auto_replies"}], [{"text": "🏠 Asosiy menyu", "callback_data": "menu:home"}]])
         return {"inline_keyboard": rows}
 
@@ -2042,15 +1975,13 @@ Qisqa qo‘llanma (ochish uchun bosing):
             message_id = sent.get("message_id") if isinstance(sent, dict) else None
             if isinstance(message_id, int):
                 try:
-                    await self.telegram.edit_message_text(chat_id, message_id, f"🏓 Pong! {elapsed_ms} ms")
+                    await self.telegram.edit_message_text(chat_id, message_id, f"🏓 Pong! {elapsed_ms} ms", business_connection_id=connection_id)
                 except TelegramApiError:
                     pass
         elif command == "settings":
             await self._send_chunks(chat_id, self._settings_text(owner_id), connection_id, reply_to, self._settings_keyboard(owner_id))
         elif command == "list":
-            rows = self._list_auto_replies(owner_id)
-            body = "💬 Avto javoblar ro‘yxati\n\n" + ("\n".join(f"{row.get('id')}. {row.get('trigger')} → {row.get('response')}" for row in rows) if rows else "Hozircha ro‘yxat bo‘sh.")
-            await self._send_chunks(chat_id, body, connection_id, reply_to)
+            await self._send_chunks(chat_id, self._auto_replies_text(owner_id), connection_id, reply_to, self._auto_replies_keyboard(owner_id))
         elif command == "add":
             if "|" in argument:
                 trigger, response = (part.strip() for part in argument.split("|", 1))
@@ -2165,7 +2096,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
             await asyncio.sleep(0.35)
             partial = text[:cut]
             try:
-                await self.telegram.edit_message_text(chat_id, message_id, partial)
+                await self.telegram.edit_message_text(chat_id, message_id, partial, business_connection_id=connection_id)
             except TelegramApiError:
                 break
 
