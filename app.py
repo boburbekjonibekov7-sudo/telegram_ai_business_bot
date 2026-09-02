@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 import signal
@@ -106,12 +107,31 @@ class BusinessAiBot:
         self.settings = settings
         self.telegram = TelegramBotApi(settings.bot_token)
         self.ai = AIService(settings)
+        # Loyiha egasining Telegram ID'si — .env dagi ADMIN_USER_ID orqali
+        # sozlanadi (config.py). Avval bu qiymat kodga hardcoded qilingan edi
+        # (OWNER_ADMIN_ID doim 8645314130), shu sabab ADMIN_USER_ID o'zgaruvchisi
+        # amalda hech qanday ta'sir qilmasdi. Endi haqiqiy sozlamadan olinadi.
+        self.owner_admin_id: int = settings.admin_user_id if isinstance(settings.admin_user_id, int) else OWNER_ADMIN_ID
         self.store = store or PostgresStore.from_env(settings.max_history_messages) or JsonStore(settings.data_dir, settings.max_history_messages)
+        # Vercel kabi serverless muhitda fayl tizimi so‘rovlar orasida saqlanmaydi.
+        # Agar DATABASE_URL ulanmagan bo‘lsa, .settings/.list dagi barcha "on/off"
+        # tugmalari tashqi ko‘rinishda ishlaganday bo‘ladi, lekin keyingi so‘rovda
+        # o‘zgarish yo‘qoladi. Buni administratorga aniq ko‘rsatamiz.
+        self._is_persistent_store = isinstance(self.store, PostgresStore)
+        self._running_serverless_without_db = bool(os.getenv("VERCEL")) and not self._is_persistent_store
+        if self._running_serverless_without_db:
+            LOGGER.critical(
+                "DATABASE_URL sozlanmagan! Serverless (Vercel) muhitida JsonStore "
+                "ma'lumotlari so‘rovlar orasida saqlanmaydi — barcha sozlamalar, "
+                "avto-javob on/off holatlari va boshqa o‘zgarishlar tiklanadi. "
+                "Neon Postgres ulang va Vercel Environment Variables ichiga "
+                "DATABASE_URL ni qo‘shing."
+            )
         self.pause_store = None
         self.connections: dict[str, dict[str, Any]] = {}
         # Har bir Business connection o‘z user profili va sozlamalari bilan ishlaydi.
         # Global admin huquqi faqat loyiha egasining hardcoded Telegram ID'siga tegishli.
-        self.admin_user_ids: set[int] = {OWNER_ADMIN_ID}
+        self.admin_user_ids: set[int] = {self.owner_admin_id}
         self.chat_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.stop_event = asyncio.Event()
 
@@ -373,7 +393,7 @@ class BusinessAiBot:
         # Har bir premium user yoki Business connection o‘z roliga ega.
         # Global role faqat eski owner profiliga tegishli; boshqa profillarga meros qilinmaydi.
         role = ""
-        if user_id == OWNER_ADMIN_ID or (user_id is None and business_connection_id is None):
+        if user_id == self.owner_admin_id or (user_id is None and business_connection_id is None):
             role = self.store.get_role("")
         elif isinstance(user_id, int):
             user_role_method = getattr(self.store, "get_user_role", None)
@@ -424,7 +444,7 @@ class BusinessAiBot:
         return "Botdan foydalanish uchun quyidagi kanal(lar)ga obuna yoki zayavka tashlang va Tekshirish ✅ tugmasini bosing!"
 
     async def _is_subscription_satisfied(self, user_id: int | None) -> bool:
-        if user_id is None or user_id == OWNER_ADMIN_ID:
+        if user_id is None or user_id == self.owner_admin_id:
             return True
         channels = self._required_channels()
         if not channels:
@@ -486,7 +506,7 @@ class BusinessAiBot:
             await self._send_start_screen(chat_id, reply_to, user=message.get("from"))
             return True
 
-        if sender_id != OWNER_ADMIN_ID and not await self._ensure_subscription_or_prompt(chat_id, sender_id, reply_to):
+        if sender_id != self.owner_admin_id and not await self._ensure_subscription_or_prompt(chat_id, sender_id, reply_to):
             return True
 
         if command in {"/terms", "/shartlar"}:
@@ -508,7 +528,7 @@ class BusinessAiBot:
             return True
 
         sender_id = self._user_id(message)
-        is_owner = sender_id == OWNER_ADMIN_ID
+        is_owner = sender_id == self.owner_admin_id
         is_premium = sender_id is not None and self._has_premium(sender_id)
         if command == "/admin":
             if not is_owner and not is_premium:
@@ -584,28 +604,28 @@ class BusinessAiBot:
                 self._remember_business_message(business_owner_id, message)
 
         text = self._message_text(message)
-        owner_session = self._owner_session(user_id) if not is_business and user_id == OWNER_ADMIN_ID else None
+        owner_session = self._owner_session(user_id) if not is_business and user_id == self.owner_admin_id else None
         user_session = self._user_session(user_id) if not is_business and isinstance(user_id, int) else None
         if not text and not (owner_session and owner_session.get("state") in {"broadcast_forward", "media_upload"}):
             return
         if not is_business and await self._handle_admin_command(message, text, chat_id):
             return
-        if not is_business and user_id == OWNER_ADMIN_ID and await self._handle_owner_session(message, text, chat_id):
+        if not is_business and user_id == self.owner_admin_id and await self._handle_owner_session(message, text, chat_id):
             return
         if not is_business and isinstance(user_id, int) and await self._handle_auto_reply_session(message, text, chat_id, user_session):
             return
 
-        if not is_business and user_id != OWNER_ADMIN_ID and not await self._ensure_subscription_or_prompt(chat_id, user_id, message.get("message_id")):
+        if not is_business and user_id != self.owner_admin_id and not await self._ensure_subscription_or_prompt(chat_id, user_id, message.get("message_id")):
             return
 
-        if not is_business and user_id != OWNER_ADMIN_ID and self._is_promo_trigger(text):
+        if not is_business and user_id != self.owner_admin_id and self._is_promo_trigger(text):
             await self._handle_mangekyo_promo(message, chat_id)
             return
-        if not is_business and user_id != OWNER_ADMIN_ID and self._is_promo_inquiry(text):
+        if not is_business and user_id != self.owner_admin_id and self._is_promo_inquiry(text):
             await self._send_chunks(chat_id, PROMO_SILENT_REPLY, None, message.get("message_id"))
             return
 
-        if not is_business and user_id != OWNER_ADMIN_ID and not self._has_premium(user_id):
+        if not is_business and user_id != self.owner_admin_id and not self._has_premium(user_id):
             await self._send_premium_panel(chat_id, user_id, message.get("message_id"))
             return
 
@@ -738,7 +758,7 @@ class BusinessAiBot:
         # tahrirlash uchun business_connection_id albatta kerak — aks holda
         # Telegram editMessage* chaqiruvini rad etadi va tugmalar "ishlamaydi".
         business_connection_id = callback.get("business_connection_id") or None
-        is_owner = isinstance(user_id, int) and user_id == OWNER_ADMIN_ID
+        is_owner = isinstance(user_id, int) and user_id == self.owner_admin_id
         is_premium = isinstance(user_id, int) and self._has_premium(user_id)
         if data == "subscription:check":
             await self.telegram.answer_callback_query(callback_id)
@@ -749,7 +769,7 @@ class BusinessAiBot:
                 channels = self._required_channels()
                 await self._edit_owner_screen(chat_id, message_id, self._subscription_gate_text(channels), self._subscription_gate_keyboard(channels))
             return
-        if user_id != OWNER_ADMIN_ID and not await self._is_subscription_satisfied(user_id):
+        if user_id != self.owner_admin_id and not await self._is_subscription_satisfied(user_id):
             await self.telegram.answer_callback_query(callback_id, "Avval kanalga obuna bo‘ling yoki zayavka yuboring.", True)
             return
         owner_only_callback = data.startswith(("owner:", "vip:", "channel:", "broadcast:"))
@@ -1167,7 +1187,7 @@ class BusinessAiBot:
             await self._send_chunks(chat_id, text, None, None, markup)
 
     def _profile_text(self, user_id: int | None) -> str:
-        is_owner = user_id == OWNER_ADMIN_ID
+        is_owner = user_id == self.owner_admin_id
         active = is_owner or self._has_premium(user_id)
         if is_owner:
             plan = "Owner ∞"
@@ -1206,8 +1226,17 @@ class BusinessAiBot:
             [{"text": "🔙 Orqaga", "callback_data": "profile:home"}],
         ]}
 
+    def _persistence_warning(self) -> str:
+        if not self._running_serverless_without_db:
+            return ""
+        return (
+            "⚠️ DIQQAT: Ma’lumotlar bazasi (DATABASE_URL) ulanmagan! Bu sozlamalar "
+            "vaqtincha ko‘rinishi mumkin, lekin keyingi so‘rovda avvalgi holatga "
+            "qaytadi. Neon Postgres ulab, DATABASE_URL ni qo‘shing.\n\n"
+        )
+
     def _settings_text(self, user_id: int | None) -> str:
-        return """@InfoUchihaBot sozlamalari ⚙️
+        return self._persistence_warning() + """@InfoUchihaBot sozlamalari ⚙️
 
 🤷‍♂️ Bepul sozlamalar:
 
@@ -1240,7 +1269,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
                 LOGGER.warning("User setting yozilmadi user=%s key=%s: %s", user_id, key, exc)
 
     def _vip_settings_allowed(self, user_id: int | None) -> bool:
-        return isinstance(user_id, int) and (user_id == OWNER_ADMIN_ID or self._has_premium(user_id))
+        return isinstance(user_id, int) and (user_id == self.owner_admin_id or self._has_premium(user_id))
 
     def _settings_keyboard(self, user_id: int | None = None) -> dict[str, Any]:
         uid = user_id if isinstance(user_id, int) else 0
@@ -1398,6 +1427,11 @@ Qisqa qo‘llanma (ochish uchun bosing):
         text = str(text)
         return text if len(text) <= 1024 else text[:1021].rstrip() + "…"
 
+    @staticmethod
+    def _is_not_modified_error(exc: Exception) -> bool:
+        description = getattr(exc, "description", "") or str(exc)
+        return "not modified" in description.lower()
+
     async def _render_media_or_text(
         self,
         chat_id: int,
@@ -1415,16 +1449,24 @@ Qisqa qo‘llanma (ochish uchun bosing):
                     await self.telegram.edit_message_media(chat_id, edit_message_id, media_type, file_id, self._media_caption(text), markup, business_connection_id=business_connection_id)
                     return
                 except (TelegramApiError, AttributeError) as exc:
+                    if self._is_not_modified_error(exc):
+                        # Telegram: kontent aynan bir xil — bu haqiqiy xato emas,
+                        # yangi xabar yuborish shart emas (dublikat oldini olamiz).
+                        return
                     LOGGER.warning("Media xabarini tahrirlashda xato slot=%s: %s", slot, exc)
                     try:
                         await self.telegram.edit_message_caption(chat_id, edit_message_id, text, markup, business_connection_id=business_connection_id)
                         return
                     except (TelegramApiError, AttributeError) as caption_exc:
+                        if self._is_not_modified_error(caption_exc):
+                            return
                         LOGGER.warning("Media caption/keyboard fallback ham ishlamadi slot=%s: %s", slot, caption_exc)
                         try:
                             await self.telegram.edit_message_text(chat_id, edit_message_id, text, markup, business_connection_id=business_connection_id)
                             return
                         except (TelegramApiError, AttributeError) as text_exc:
+                            if self._is_not_modified_error(text_exc):
+                                return
                             LOGGER.warning("Media text fallback ham ishlamadi slot=%s: %s", slot, text_exc)
             try:
                 if media_type == "video":
@@ -1439,10 +1481,14 @@ Qisqa qo‘llanma (ochish uchun bosing):
                 await self.telegram.edit_message_text(chat_id, edit_message_id, text, markup, business_connection_id=business_connection_id)
                 return
             except (TelegramApiError, AttributeError) as exc:
+                if self._is_not_modified_error(exc):
+                    return
                 try:
                     await self.telegram.edit_message_caption(chat_id, edit_message_id, text, markup, business_connection_id=business_connection_id)
                     return
                 except (TelegramApiError, AttributeError) as caption_exc:
+                    if self._is_not_modified_error(caption_exc):
+                        return
                     LOGGER.warning("Text/caption media fallback ishlamadi: %s; %s", exc, caption_exc)
         await self._send_chunks(chat_id, text, business_connection_id, None, markup)
 
@@ -1501,7 +1547,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
 
     def _auto_replies_text(self, user_id: int | None) -> str:
         notice = self._user_setting(user_id or 0, "auto_reply_notice", "")
-        lines = ["💬 Avto javoblar ro‘yxati"]
+        lines = [self._persistence_warning() + "💬 Avto javoblar ro‘yxati"]
         if notice:
             lines.extend(["", notice])
         lines.extend(["", "⚙️ Buyruqlar ruxsati:"])
@@ -1758,7 +1804,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
         ]}
 
     def _manual_pause_enabled(self, user_id: int | None = None) -> bool:
-        if isinstance(user_id, int) and user_id != OWNER_ADMIN_ID:
+        if isinstance(user_id, int) and user_id != self.owner_admin_id:
             user_method = getattr(self.store, "user_manual_pause_enabled", None)
             if callable(user_method):
                 try:
@@ -1776,7 +1822,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
             return True
 
     def _set_manual_pause_enabled(self, enabled: bool, user_id: int | None = None) -> None:
-        if isinstance(user_id, int) and user_id != OWNER_ADMIN_ID:
+        if isinstance(user_id, int) and user_id != self.owner_admin_id:
             user_method = getattr(self.store, "set_user_manual_pause_enabled", None)
             if callable(user_method):
                 try:
@@ -1880,21 +1926,21 @@ Qisqa qo‘llanma (ochish uchun bosing):
             clearer(user_id)
 
     def _owner_session(self, user_id: int | None) -> dict[str, Any] | None:
-        if user_id != OWNER_ADMIN_ID:
+        if user_id != self.owner_admin_id:
             return None
         getter = getattr(self.store, "get_admin_session", None)
         session = getter(user_id) if callable(getter) else None
         return session if isinstance(session, dict) else None
 
     def _set_owner_session(self, user_id: int | None, state: str, data: dict[str, Any] | None = None) -> None:
-        if user_id != OWNER_ADMIN_ID:
+        if user_id != self.owner_admin_id:
             return
         setter = getattr(self.store, "set_admin_session", None)
         if callable(setter):
             setter(user_id, state, data or {})
 
     def _clear_owner_session(self, user_id: int | None) -> None:
-        if user_id != OWNER_ADMIN_ID:
+        if user_id != self.owner_admin_id:
             return
         clearer = getattr(self.store, "clear_admin_session", None)
         if callable(clearer):
@@ -2196,7 +2242,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
         reply_to = message.get("message_id")
         if text.casefold() in {"bekor", "/cancel"}:
             self._clear_owner_session(user_id)
-            await self._send_chunks(chat_id, "✅ Amal bekor qilindi.", None, reply_to, self._admin_panel_keyboard(include_statistics=user_id == OWNER_ADMIN_ID, include_main_menu=True, user_id=user_id, include_owner_tools=user_id == OWNER_ADMIN_ID))
+            await self._send_chunks(chat_id, "✅ Amal bekor qilindi.", None, reply_to, self._admin_panel_keyboard(include_statistics=user_id == self.owner_admin_id, include_main_menu=True, user_id=user_id, include_owner_tools=user_id == self.owner_admin_id))
             return True
         if state == "media_upload":
             slot = str(data.get("slot") or "")

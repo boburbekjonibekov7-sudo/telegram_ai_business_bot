@@ -1074,6 +1074,79 @@ class AutoReplyCrudTests(unittest.TestCase):
         asyncio.run(bot.process_update({"business_message": incoming}))
         self.assertEqual(bot.telegram.sent[-1]["text"], "Va alaykum!")
 
+    def test_all_three_auto_reply_toggle_buttons_persist_and_rerender(self) -> None:
+        """
+        Regression: ".list" -> "Ko'rish" -> har uch toggle tugmasi (Avto javob,
+        Xabar ichida so'z bo'lsa, O'zimga javob bersin) bosilganda holat
+        haqiqatan ham o'zgarishi va yangilangan matn/tugma darhol qayta
+        chizilishi kerak.
+        """
+        bot = self._bot()
+        record_id = bot.store.upsert_auto_reply(8645314130, "salom", "Va alaykum!")
+        owner = {"id": 8645314130}
+        base = {"chat": {"id": 8645314130}, "message_id": 10}
+
+        for option, field in (
+            ("enabled", "enabled"),
+            ("reply_in_message", "reply_in_message"),
+            ("reply_to_owner", "reply_to_owner"),
+        ):
+            before = bool(bot.store.get_auto_reply(8645314130, record_id)[field])
+            asyncio.run(bot.process_update({
+                "callback_query": {
+                    "id": f"toggle-{option}",
+                    "from": owner,
+                    "data": f"auto:option:{record_id}:{option}",
+                    "message": base,
+                }
+            }))
+            after = bool(bot.store.get_auto_reply(8645314130, record_id)[field])
+            self.assertNotEqual(before, after, f"{option} tugmasi holatni o'zgartirmadi")
+            # Qayta chizilgan matn yangi holatni aks ettirishi kerak.
+            expected_state = "on" if after else "off"
+            self.assertIn(expected_state, bot.telegram.sent[-1]["text"])
+
+    def test_list_command_shows_real_buttons_not_plain_text(self) -> None:
+        """".list" dot-buyrug'i endi tugmali (view/edit/delete) ro'yxatni qaytarishi kerak."""
+        bot = self._bot()
+        bot.store.upsert_auto_reply(8645314130, "salom", "Assalomu alaykum!")
+        incoming = {
+            "message_id": 90,
+            "chat": {"id": 8645314130},
+            "from": {"id": 8645314130},
+            "text": ".list",
+        }
+        asyncio.run(bot.process_update({"message": incoming}))
+        last = bot.telegram.sent[-1]
+        buttons = [b["text"] for row in (last.get("reply_markup") or {}).get("inline_keyboard", []) for b in row]
+        self.assertTrue(any("Tahrirlash" in b or "javob" in b.lower() for b in buttons), buttons)
+
+    def test_not_modified_error_does_not_send_duplicate_message(self) -> None:
+        """
+        Regression: foydalanuvchi tugmani ikki marta bossa va holat allaqachon
+        yozilgan bo'lsa, Telegram "message is not modified" xatosini qaytaradi.
+        Bu haqiqiy xato emas — bot bunda YANGI (dublikat) xabar YUBORMASLIGI kerak.
+        Aynan shu xato avval foydalanuvchiga "tugma bosilganda yangi oyna ochiladi"
+        bo'lib ko'ringan.
+        """
+        bot = self._bot()
+
+        async def not_modified(chat_id, message_id, text, reply_markup=None, business_connection_id=None):
+            raise TelegramApiError("editMessageText", "Bad Request: message is not modified")
+
+        bot.telegram.edit_message_text = not_modified
+        sent_before = len(bot.telegram.sent)
+        asyncio.run(bot.process_update({
+            "callback_query": {
+                "id": "cb-not-modified",
+                "from": {"id": 8645314130},
+                "data": "settings:apk",
+                "message": {"chat": {"id": 8645314130}, "message_id": 55},
+            }
+        }))
+        # edit muvaffaqiyatsiz tugagan bo'lsa ham, _send_chunks orqali YANGI xabar YUBORILMASLIGI kerak
+        self.assertEqual(len(bot.telegram.sent), sent_before)
+
     def test_media_caption_fallback_keeps_same_message_id(self) -> None:
         bot = self._bot()
         bot.store.set_setting("start_media_file_id", "start-photo")
@@ -1081,7 +1154,7 @@ class AutoReplyCrudTests(unittest.TestCase):
 
         async def fail_media(chat_id, message_id, media_type, media, caption, reply_markup=None, business_connection_id=None):
             calls.append(("media", message_id))
-            raise TelegramApiError("editMessageMedia", "message is not modified")
+            raise TelegramApiError("editMessageMedia", "wrong file identifier/HTTP URL specified")
 
         async def caption(chat_id, message_id, text, reply_markup=None, business_connection_id=None):
             calls.append(("caption", message_id, text))
@@ -1151,6 +1224,92 @@ class BusinessCallbackButtonsTests(unittest.TestCase):
         edited = [item for item in bot.telegram.sent if item.get("message_id") == 101]
         self.assertTrue(edited)
         self.assertIsNone(edited[-1].get("business_connection_id"))
+
+
+class ServerlessPersistenceWarningTests(unittest.TestCase):
+    """
+    Regression: Vercel’da DATABASE_URL sozlanmasa, JsonStore ma’lumotlari
+    so‘rovlar orasida saqlanmaydi (har o‘zgarish "yo‘qolganday" tuyuladi).
+    Bot bu holatni owner’ga .settings/.list ichida aniq ko‘rsatishi kerak.
+    """
+
+    def _settings_owner(self):
+        return SimpleNamespace(
+            bot_token="test-token",
+            ai_provider="openai",
+            openai_api_key="test",
+            qwen_api_key="",
+            openai_base_url="https://api.openai.com/v1",
+            qwen_base_url="https://example.com",
+            openai_model="gpt-4o-mini",
+            qwen_model="qwen-plus",
+            manus_api_key="",
+            manus_base_url="https://api.manus.ai",
+            manus_agent_profile="manus-1.6-lite",
+            manus_max_wait_seconds=45,
+            system_prompt="test",
+            data_dir=Path(tempfile.mkdtemp()),
+            max_history_messages=12,
+            send_error_message=True,
+            manual_pause_seconds=1800,
+            admin_user_id=8645314130,
+        )
+
+    def test_warning_shown_when_vercel_env_and_no_postgres(self) -> None:
+        os.environ["VERCEL"] = "1"
+        try:
+            bot = BusinessAiBot(self._settings_owner(), store=JsonStore(Path(tempfile.mkdtemp())))
+            self.assertTrue(bot._running_serverless_without_db)
+            self.assertIn("DATABASE_URL", bot._settings_text(8645314130))
+            self.assertIn("DATABASE_URL", bot._auto_replies_text(8645314130))
+        finally:
+            os.environ.pop("VERCEL", None)
+
+    def test_no_warning_when_postgres_configured(self) -> None:
+        os.environ["VERCEL"] = "1"
+        try:
+            bot = BusinessAiBot(self._settings_owner(), store=PostgresStore("postgres://fake"))
+            self.assertFalse(bot._running_serverless_without_db)
+            self.assertNotIn("DATABASE_URL", bot._settings_text(8645314130))
+        finally:
+            os.environ.pop("VERCEL", None)
+
+    def test_no_warning_outside_serverless(self) -> None:
+        os.environ.pop("VERCEL", None)
+        bot = BusinessAiBot(self._settings_owner(), store=JsonStore(Path(tempfile.mkdtemp())))
+        self.assertFalse(bot._running_serverless_without_db)
+        self.assertNotIn("DATABASE_URL", bot._settings_text(8645314130))
+
+
+class ConfigurableOwnerIdTests(unittest.TestCase):
+    """
+    Regression: avval OWNER_ADMIN_ID kodga hardcoded (8645314130) edi va
+    config.py'dagi ADMIN_USER_ID muhit o'zgaruvchisi haqiqatda hech narsaga
+    ta'sir qilmasdi — deploy qilgan har bir kishi, o'z Telegram ID'sini
+    ADMIN_USER_ID ga qo'ysa ham, hech qachon "owner" deb tanilmasdi.
+    """
+
+    def _settings(self, admin_user_id: int):
+        return SimpleNamespace(
+            bot_token="dummy", ai_provider="manus", openai_api_key="", qwen_api_key="", manus_api_key="key",
+            openai_base_url="https://api.openai.com/v1", qwen_base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            openai_model="gpt-4o-mini", qwen_model="qwen-plus", manus_base_url="https://api.manus.ai",
+            manus_agent_profile="manus-1.6-lite", manus_max_wait_seconds=45, system_prompt="default",
+            data_dir=Path(tempfile.mkdtemp()), max_history_messages=12, send_error_message=False,
+            admin_user_id=admin_user_id,
+        )
+
+    def test_custom_admin_user_id_is_recognized_as_owner(self) -> None:
+        my_own_telegram_id = 555000111
+        bot = BusinessAiBot(self._settings(my_own_telegram_id), store=MemoryStore())
+        self.assertEqual(bot.owner_admin_id, my_own_telegram_id)
+        self.assertIn(my_own_telegram_id, bot.admin_user_ids)
+        # Eski hardcoded ID endi "owner" emas, agar ADMIN_USER_ID boshqacha bo'lsa.
+        self.assertNotEqual(bot.owner_admin_id, 8645314130)
+
+    def test_default_admin_user_id_keeps_backward_compatibility(self) -> None:
+        bot = BusinessAiBot(self._settings(8645314130), store=MemoryStore())
+        self.assertEqual(bot.owner_admin_id, 8645314130)
 
 
 if __name__ == "__main__":

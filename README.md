@@ -104,11 +104,55 @@ Vercel project’ning **Settings → Environment Variables** bo‘limida Product
 | `MAX_HISTORY_MESSAGES` | Yo‘q | Default `12` |
 | `SEND_ERROR_MESSAGE` | Yo‘q | Default `true` |
 | `MANUAL_REPLY_PAUSE_SECONDS` | Yo‘q | Default `1800` (30 daqiqa) |
-| `DATABASE_URL` | Tavsiya qilinadi | Neon PostgreSQL connection string; Vercel cold startlarida pause holatini saqlaydi |
+| `DATABASE_URL` | **Majburiy (Vercel’da)** | Neon PostgreSQL connection string — quyidagi ogohlantirishni o‘qing |
+| `ADMIN_USER_ID` | **Majburiy — o‘zingizning ID’ingizga o‘zgartiring** | Sizning shaxsiy Telegram raqamli ID’ingiz — pastdagi ogohlantirishni o‘qing |
 | `UPSTASH_REDIS_REST_URL` | Muqobil | Neon ishlatilmasa Upstash Redis REST endpointi |
 | `UPSTASH_REDIS_REST_TOKEN` | Muqobil | Neon ishlatilmasa Upstash Redis REST tokeni |
 
 Vercel’ning Production URL’i avtomatik ravishda `VERCEL_PROJECT_PRODUCTION_URL` orqali olinadi. Zarur bo‘lsa `PUBLIC_BASE_URL` ni `https://your-project.vercel.app` ko‘rinishida qo‘shish mumkin. URL oxirida `/` bo‘lmasin.
+
+### ⚠️ MUHIM: `DATABASE_URL` bo‘lmasa, sozlamalar/tugmalar "ishlamayotganday" ko‘rinadi
+
+Vercel’ning har bir funksiya chaqiruvi (webhook so‘rovi) alohida, vaqtinchalik
+konteynerlarda ishlaydi — fayl tizimiga yozilgan narsalar keyingi so‘rovda
+**yo‘qoladi**. Agar `DATABASE_URL` (Neon Postgres) sozlanmagan bo‘lsa, bot
+avtomatik ravishda `JsonStore` (mahalliy `data/conversations.json`) ga
+qaytadi. Natijada:
+
+- `.settings` yoki `.list` ichidagi "on/off" tugmalarini bossangiz, o‘sha
+  zahoti o‘zgargandek ko‘rinadi (chunki o‘sha bitta so‘rov ichida yozib
+  o‘qilyapti), lekin **keyingi tugma bosilganda yoki keyingi xabar kelganda
+  hammasi eski holatiga qaytadi** — chunki yangi so‘rov butunlay yangi,
+  bo‘sh `JsonStore` bilan boshlanadi.
+- `.add` orqali qo‘shilgan avto-javoblar, `.settings` orqali o‘zgartirilgan
+  sozlamalar, VIP holati — barchasi shunga o‘xshab "unutiladi".
+
+Bu **kod xatosi emas**, balki Vercel serverless arxitekturasining tabiati.
+Shu sabab endi bot ishga tushganda, agar `VERCEL` muhitida ishlab
+`DATABASE_URL` topilmasa, `.settings` va `.list` xabarlarining boshida
+avtomatik ⚠️ ogohlantirish banneri chiqadi va server loglariga
+`CRITICAL` daражali xabar yoziladi.
+
+**Yechim:** [Neon](https://neon.tech) da bepul Postgres bazasi yarating,
+connection stringni `DATABASE_URL` sifatida Vercel’ning Environment
+Variables bo‘limiga qo‘shing va qayta deploy qiling.
+
+### ⚠️ MUHIM: `ADMIN_USER_ID` ni albatta o‘zingizning Telegram ID’ingizga o‘zgartiring
+
+Avvalgi versiyada owner (egasi) ID’si **kodning ichiga qattiq yozilgan**
+(`8645314130`) edi — `ADMIN_USER_ID` environment variable’ni o‘zgartirsangiz
+ham, bot baribir sizni "owner" deb tanimas edi (bu haqiqiy bug edi, endi
+tuzatildi). Natijada:
+
+- `/admin`, `/rol`, VIP berish/olish, kanal boshqaruvi, xabar yuborish,
+  menyu media sozlamalari kabi **owner-only** bo‘limlarning barchasi
+  ishlamas edi (chunki siz "admin emassiz" deb hisoblanardingiz)
+
+Endi bu to‘liq sozlanadi: `ADMIN_USER_ID` ga **o‘zingizning shaxsiy Telegram
+raqamli ID’ingizni** kiriting (username emas, raqam — masalan `@userinfobot`
+orqali bilib olishingiz mumkin), Vercel’da qayta deploy qiling. Shundan so‘ng
+o‘sha Telegram akkaunt bilan botga yozganingizda siz to‘liq owner
+huquqlariga ega bo‘lasiz.
 
 ## Deploy va webhook
 
@@ -152,7 +196,7 @@ Mahalliy polling testida `WEBHOOK_SECRET` kerak emas. Vercel webhook testida esa
 
 ## Admin panel
 
-Botning shaxsiy chatida `/admin` buyrug‘i owner va faol premium userlar uchun ochiladi. Owner ID `8645314130` to‘liq panel, jumladan statistika, AI roli va 30 daqiqalik manual pause boshqaruviga ega. Premium userlar panelida statistika tugmasi bo‘lmaydi; ular shaxsiy rol va pause boshqaruvidan foydalanadi. `⏱ Pause` bo‘limidagi tugma bilan bu funksiyani istalgan payt yoqing yoki o‘chiring; tanlangan holat Neon’dagi `telegram_settings` jadvalida saqlanadi. Oddiy premium bo‘lmagan user `/admin` yoki `/rol` yuborsa, bot `Siz admin emassiz.` deb javob beradi. Admin panel tugmalari ham har bir callback’da qayta tekshiriladi.
+Botning shaxsiy chatida `/admin` buyrug‘i owner va faol premium userlar uchun ochiladi. `ADMIN_USER_ID` da ko‘rsatilgan owner ID to‘liq panel, jumladan statistika, AI roli va 30 daqiqalik manual pause boshqaruviga ega. Premium userlar panelida statistika tugmasi bo‘lmaydi; ular shaxsiy rol va pause boshqaruvidan foydalanadi. `⏱ Pause` bo‘limidagi tugma bilan bu funksiyani istalgan payt yoqing yoki o‘chiring; tanlangan holat Neon’dagi `telegram_settings` jadvalida saqlanadi. Oddiy premium bo‘lmagan user `/admin` yoki `/rol` yuborsa, bot `Siz admin emassiz.` deb javob beradi. Admin panel tugmalari ham har bir callback’da qayta tekshiriladi.
 
 ## APK fayllarini o‘chirish
 
@@ -167,7 +211,7 @@ Bot har bir Business chatni alohida kuzatadi. Agar admin panelda manual pause yo
 
 Buyruqlarni mijoz chatiga emas, botning o‘z shaxsiy chatiga yuboring. `/id` Telegram user ID’ingizni ko‘rsatadi. `/rol Siz muloyim, qisqa va faqat o‘zbek tilida javob beradigan yordamchisiz.` buyrug‘i shu profilning AI uslubini saqlaydi. `/rol` joriy qo‘shimcha rolni ko‘rsatadi, `/rol reset` esa qo‘shimcha rolni olib tashlaydi. Qo‘shimcha rol berilmaguncha AI oddiy javob rejimida ishlaydi.
 
-Ownerning global `/rol` huquqi faqat hardcoded `8645314130` ID’ga tegishli. Premium user `/rol` orqali faqat o‘zining shaxsiy rolini boshqaradi. `DATABASE_URL` orqali Neon PostgreSQL ulangani sababli rol va suhbat tarixi yangi deploymentdan keyin ham saqlanadi. `telegram_settings` jadvalida global AI roli, `telegram_conversations` jadvalida har bir Business chat tarixi, `telegram_owner_pauses` jadvalida esa `business_connection_id + chat_id` bo‘yicha owner pause vaqti saqlanadi. Neon vaqtincha ishlamasa, bot xatoni logga yozib, javob oqimini xavfsiz fallback bilan davom ettiradi.
+Ownerning global `/rol` huquqi faqat `ADMIN_USER_ID` orqali sozlangan owner ID’ga tegishli. Premium user `/rol` orqali faqat o‘zining shaxsiy rolini boshqaradi. `DATABASE_URL` orqali Neon PostgreSQL ulangani sababli rol va suhbat tarixi yangi deploymentdan keyin ham saqlanadi. `telegram_settings` jadvalida global AI roli, `telegram_conversations` jadvalida har bir Business chat tarixi, `telegram_owner_pauses` jadvalida esa `business_connection_id + chat_id` bo‘yicha owner pause vaqti saqlanadi. Neon vaqtincha ishlamasa, bot xatoni logga yozib, javob oqimini xavfsiz fallback bilan davom ettiradi.
 
 ## Premium subscription
 
@@ -197,7 +241,7 @@ Bot tokeni va AI key’larini `.env`, Git history, README yoki source code’ga 
 
 ## Owner-only boshqaruv funksiyalari
 
-Admin panelda `💎 VIP boshqaruvi`, `📢 Kanal boshqaruvi` va `✉️ Xabar yuborish` bo‘limlari faqat hardcoded owner ID `8645314130` uchun ko‘rinadi. VIP boshqaruvi userga kunlik VIP berish, VIP accessni olish va faol VIP userlar ro‘yxatini ko‘rsatishni qo‘llab-quvvatlaydi.
+Admin panelda `💎 VIP boshqaruvi`, `📢 Kanal boshqaruvi` va `✉️ Xabar yuborish` bo‘limlari faqat `ADMIN_USER_ID` orqali sozlangan owner ID uchun ko‘rinadi. VIP boshqaruvi userga kunlik VIP berish, VIP accessni olish va faol VIP userlar ro‘yxatini ko‘rsatishni qo‘llab-quvvatlaydi.
 
 Kanal boshqaruvi reference botdagi kabi ommaviy, asosiy, majburiy obuna, private/so‘rovli va oddiy URL kanal turlarini qabul qiladi. Ommaviy/asosiy/majburiy kanallar username yoki chat ID orqali qo‘shiladi; private kanal forward qilingan xabar va invite link orqali, URL kanal esa havola orqali saqlanadi. Kanallar ro‘yxatini ko‘rish va o‘chirish ham mavjud. Bot kanalga xabar yuborishi uchun Telegram’da o‘sha kanalga administrator huquqi berilishi kerak.
 
@@ -217,9 +261,9 @@ User kanalga oddiy a’zo bo‘lsa yoki join request yuborgan bo‘lsa, tekshiru
 
 ## Owner-only menyu media sozlamalari
 
-Admin panelidagi `🖼 Menyu media sozlamalari` bo‘limi faqat hardcoded owner ID `8645314130` uchun ko‘rinadi. Bu bo‘limdan start rasmi, Buyruqlar rasmi, Chatbotni ulash videosi va Chatbotdan foydalanish videosini alohida yuklash, almashtirish yoki o‘chirish mumkin. Rasm yoki video botning shaxsiy chatiga yuboriladi; bot Telegram bergan `file_id` qiymatini Neon’dagi `telegram_settings` jadvalida saqlaydi va faylning o‘zini bazaga yozmaydi.
+Admin panelidagi `🖼 Menyu media sozlamalari` bo‘limi faqat `ADMIN_USER_ID` orqali sozlangan owner ID uchun ko‘rinadi. Bu bo‘limdan start rasmi, Buyruqlar rasmi, Chatbotni ulash videosi va Chatbotdan foydalanish videosini alohida yuklash, almashtirish yoki o‘chirish mumkin. Rasm yoki video botning shaxsiy chatiga yuboriladi; bot Telegram bergan `file_id` qiymatini Neon’dagi `telegram_settings` jadvalida saqlaydi va faylning o‘zini bazaga yozmaydi.
 
-Media sozlamalari mavjud bo‘lmasa, bot avtomatik ravishda matnli fallback ekranini ko‘rsatadi. VIP va oddiy userlar bu admin tugmasini ko‘rmaydi; `owner:media:*` callbacklari qo‘lda yuborilganda ham authorization tekshiruvidan o‘tmaydi. VIP boshqaruvi, majburiy va umumiy kanal boshqaruvi hamda xabar yuborish bo‘limlari ham xuddi shu tarzda faqat `8645314130` uchun yopiq.
+Media sozlamalari mavjud bo‘lmasa, bot avtomatik ravishda matnli fallback ekranini ko‘rsatadi. VIP va oddiy userlar bu admin tugmasini ko‘rmaydi; `owner:media:*` callbacklari qo‘lda yuborilganda ham authorization tekshiruvidan o‘tmaydi. VIP boshqaruvi, majburiy va umumiy kanal boshqaruvi hamda xabar yuborish bo‘limlari ham xuddi shu tarzda faqat `ADMIN_USER_ID` uchun yopiq.
 
 Media yuklash tartibi: `/admin` → `🖼 Menyu media sozlamalari` → kerakli media turi → mos rasm yoki video yuborish. Rasm bo‘limlariga photo, video bo‘limlariga video yuborish kerak; jarayonni `/cancel` bilan bekor qilish mumkin.
 
