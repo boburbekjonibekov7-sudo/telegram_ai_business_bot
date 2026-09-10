@@ -1,280 +1,56 @@
-# Telegram AI Chat Automation Bot
+# Telegram AI Business Bot — clean rebuild
 
-Bu loyiha Telegram profiliga ulangan Chat Automation bot orqali shaxsiy chatlarga Manus AI yordamida avtomatik javob beradi. OpenAI va Qwen/DashScope ham konfiguratsiyada qo‘llab-quvvatlanadi. Bot Python tilida yozilgan va **Vercel Python serverless webhook** sifatida ishlashga moslangan.
+Bu repository eski asosiy menyu va funksiyalardan tozalangan, yangi botni bosqichma-bosqich qurish uchun minimal skeletdir.
 
-GitHub’dagi `manhwa_bot` repositoriyasi bu loyiha uchun faqat reference sifatida ko‘rilgan. Unga hech qanday commit, push yoki boshqa o‘zgartirish yuborilmaydi.
+## Hozirgi holat
 
-## Arxitektura
+Bot Telegram Bot API orqali ishlaydi va Vercel webhook sifatida deploy qilinadi. Hozircha `/start` va `/help` buyruqlariga faqat quyidagi vaqtinchalik javob qaytariladi:
 
-Vercel `api/index.py` faylini ASGI endpoint sifatida ishga tushiradi. Telegram webhook orqali kelgan `business_message` update’lari secret path va `X-Telegram-Bot-Api-Secret-Token` header orqali tekshiriladi. Dastur `business_connection_id`, `chat_id` va `can_reply` huquqini tekshiradi, Manus v2 task yaratib statusni polling orqali kutadi yoki OpenAI/Qwen’ga xabar yuboradi va javobni Telegram `sendMessage` metodi orqali profil nomidan jo‘natadi.
+> Bot qayta qurilmoqda. Yangi funksiyalar tez orada qo‘shiladi.
 
-Vercel serverless instance’lari doimiy disk sifatida ishlatilmaydi. `DATABASE_URL` mavjud bo‘lsa, `postgres_store.py` Neon PostgreSQL’da `/rol`, suhbat tarixi va owner pause holatini saqlaydi; shu sababli instance almashtirilishi yoki yangi deployment suhbat ma’lumotlarini o‘chirmaydi. DATABASE_URL bo‘lmagan lokal rejimda JSON yoki memory fallback ishlaydi. Credentiallar va secretlar hech qachon repositoryga yozilmaydi.
+Inline menyu, eski `.settings`, `.add`, `.ai`, `.send`, `.down`, `.music`, VIP to‘lovlar, admin panel, avtomatik javoblar va boshqa eski biznes funksiyalari olib tashlangan.
 
-## Telegram talabi
-
-Telegram’ning 2026-yilgi rasmiy hujjatlariga ko‘ra connected bots Premiumsiz foydalanuvchilarga ham mavjud. Botni profilga ulash uchun Telegram ilovasida `Settings → Chat Automation` bo‘limiga kirib, botni tanlang va unga **reply/send messages** huquqini bering. Faqat yangi chatlar, kontaktlar, kontakt bo‘lmaganlar yoki tanlangan chatlarni ulash mumkin.
-
-Bu loyiha Bot API orqali ishlaydi. `api_id` va `api_hash` kerak emas. Kerakli Telegram credential — faqat `BOT_TOKEN`. `api_id/api_hash` faqat MTProto user-client varianti uchun kerak bo‘ladi; ushbu loyiha shaxsiy akkaunt sessiyasidan foydalanmaydi.
-
-Bot @BotFather’da Business Mode yoki profile Chat Automation bilan ishlashga ruxsat berilgan bot sifatida sozlangan bo‘lishi kerak. Dastur Telegram API’ning `getMe` javobidagi `can_connect_to_business` maydonini long-polling rejimida tekshiradi; Vercel rejimida webhook kelishi uchun BotFather sozlamasi va profil ulanishi yetarli bo‘ladi.
-
-## Fayllar
+## Muhim fayllar
 
 | Fayl | Vazifasi |
 |---|---|
-| `api/index.py` | Vercel ASGI webhook endpointi, path/header tekshiruvi |
-| `app.py` | Telegram Business update’larini qayta ishlash va AI javob oqimi |
-| `telegram_api.py` | Telegram Bot API HTTP klienti |
-| `ai_providers.py` | Manus v2 task adapteri, OpenAI/Qwen klientlari va fallback |
-| `memory_store.py` | Fallback sifatida vaqtinchalik xotira storage’i |
-| `storage.py` | Lokal ishlashda JSON suhbat storage’i |
-| `pause_store.py` | Optional Upstash Redis REST orqali durable owner-pause storage’i |
-| `postgres_pause_store.py` | Neon PostgreSQL orqali durable owner-pause storage’i |
-| `media_downloader.py` | `.down` / `.music` uchun yt-dlp asosidagi yuklab olish moduli (VIP, faqat doimiy server muhitida) |
-| `config.py` | Environment variable konfiguratsiyasi |
-| `vercel.json` | Vercel Python build va route sozlamalari |
-| `.env.example` | Lokal namuna konfiguratsiyasi |
-| `requirements-optional.txt` | `.down`/`.music` uchun ixtiyoriy yt-dlp bog‘liqligi (Vercel’da emas, VPS/run.sh uchun) |
+| `app.py` | Minimal update handler va qayta qurish nuqtasi |
+| `api/index.py` | Vercel ASGI webhook endpointi |
+| `telegram_api.py` | Telegram Bot API klienti |
+| `config.py` | Minimal environment konfiguratsiyasi |
+| `vercel.json` | Vercel route va function sozlamalari |
 
-## `.` bilan boshlanadigan chatbot buyruqlari (business chat avtomatlashtiruvi)
+## Environment Variables
 
-Quyidagi buyruqlar akkaunt egasi ulangan Telegram Business chatlarida ishlaydi
-(`.help` orqali to‘liq ro‘yxat ko‘rinadi):
+- `BOT_TOKEN` — BotFather tokeni.
+- `WEBHOOK_SECRET` — Vercel webhook yo‘lini va Telegram secret header’ini himoyalash uchun uzun random qiymat.
+- Ixtiyoriy `WEBHOOK_PATH` — maxsus webhook yo‘li kerak bo‘lsa.
 
-| Buyruq | Kim ishlata oladi | Vazifasi |
-|---|---|---|
-| `.help` | hamma | Buyruqlar ro‘yxati |
-| `.ping` | egasi | Bot javob tezligini (ms) ko‘rsatadi |
-| `.settings` | faqat shaxsiy chat | Sozlamalar menyusi |
-| `.add` / `.edit` / `.delete` | faqat shaxsiy chat | Avto-javob qo‘shish/tahrirlash/o‘chirish |
-| `.list` | faqat shaxsiy chat | Avto-javoblar ro‘yxati |
-| `.info` | hamma | Suhbatdosh haqida ma’lumot |
-| `.type matn` | hamma | Harfma-harf yozish animatsiyasi |
-| `.ai savol` | egasi | AI’dan javob olish |
-| `.send matn @user 5` | faqat shaxsiy chat | N soniyadan keyin @user’ga xabar yuborish |
-| `.soat` | faqat shaxsiy chat | Avto/AI javoblarga vaqt belgisi (🕐 HH:MM) qo‘shish/o‘chirish |
-| `.online` / `.offline` | faqat shaxsiy chat | Avto-javoblarni darhol yoqish / 24 soatga to‘xtatish |
-| `.emoji matn` | hamma | Matnni 🅰🅱🅲-uslub “premium” belgilarga aylantiradi |
-| `.dice`, `.dice1`-`.dice6` | hamma | Native Telegram 🎲🎯🏀⚽🎳🎰 animatsiyasi |
-| `.checklist band1, band2` | hamma | Vazifalar ro‘yxati (`.checklist clear` — tozalash) |
-| `.down link` | egasi, VIP | Video/fayl yuklab berish (yt-dlp, faqat VPS/run.sh) |
-| `.music nomi/link` | egasi, VIP | Musiqa yuklab berish (yt-dlp, faqat VPS/run.sh) |
+## Vercel webhook
 
-### Muhim texnik cheklov: `.soat` / `.online` / `.offline`
-
-Original namunada bu buyruqlar profil ismiga soat qo‘shish va akkauntning
-haqiqiy online/offline holatini (presence) o‘zgartirishni anglatadi. Bu **faqat
-to‘liq foydalanuvchi sessiyasi (MTProto — Telethon/Pyrogram + `api_id`/`api_hash`
-+ login)** orqali bajariladi. Ushbu loyiha ataylab Bot API + Business Connection
-arxitekturasidan foydalanadi (`api_id`/`api_hash` shart emas — README yuqorida),
-shuning uchun Telegram profilining haqiqiy ismini yoki online holatini
-o‘zgartirish **texnik jihatdan imkonsiz**. Shu sabab bu uch buyruq foydali
-muqobil vazifaga moslashtirildi: `.soat` — avtomatik javoblarga vaqt belgisi
-qo‘shadi, `.online`/`.offline` — avto-javob avtomatlashtiruvini darhol
-yoqadi/24 soatga to‘xtatadi. Agar haqiqiy presence-spoofing zarur bo‘lsa, buni
-faqat alohida Telethon-asosidagi userbot qatlami orqali qo‘shish mumkin.
-
-### `.down` / `.music` haqida
-
-Bu ikkalasi `yt-dlp` orqali ishlaydi (`requirements-optional.txt`). Vercel
-serverless funksiyalarida vaqt/hajm cheklovlari borligi sabab (ffmpeg yo‘q,
-60 soniya limit, vaqtinchalik disk kichik) bu buyruqlar **ishonchli faqat
-`run.sh` orqali doimiy ishlaydigan server/VPS muhitida** ishlaydi. Fayl hajmi
-Telegram Bot API cheklovi (~50MB) dan katta bo‘lsa, foydalanuvchiga xato xabari
-qaytariladi (soxta muvaffaqiyat ko‘rsatilmaydi).
-
-## Vercel Environment Variables
-
-Vercel project’ning **Settings → Environment Variables** bo‘limida Production uchun quyidagi qiymatlarni kiriting. Ochiq chatga yuborilgan eski tokenlarni ishlatmang; BotFather va OpenAI panelidan yangilangan credentiallarni kiriting.
-
-| O‘zgaruvchi | Majburiyligi | Qiymat |
-|---|---:|---|
-| `BOT_TOKEN` | Ha | BotFather’dan olingan yangi token |
-| `WEBHOOK_SECRET` | Ha | Uzun random secret, masalan password manager yaratgan qiymat |
-| `OPENAI_API_KEY` | OpenAI uchun | OpenAI API key |
-| `MANUS_API_KEY` | Manus uchun | Manus API Integration’dan olingan key |
-| `AI_PROVIDER` | Ha | `manus`, `openai`, `qwen` yoki `auto`; hozir `manus` |
-| `MANUS_BASE_URL` | Yo‘q | `https://api.manus.ai` |
-| `MANUS_AGENT_PROFILE` | Yo‘q | `manus-1.6-lite` |
-| `MANUS_MAX_WAIT_SECONDS` | Yo‘q | Default `45` |
-| `OPENAI_MODEL` | Yo‘q | Masalan `gpt-4o-mini` yoki hisobingizdagi boshqa model |
-| `QWEN_API_KEY` | Yo‘q | Qwen ishlatilganda qo‘shiladi |
-| `QWEN_MODEL` | Yo‘q | Masalan `qwen-plus` |
-| `QWEN_BASE_URL` | Yo‘q | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` |
-| `MAX_HISTORY_MESSAGES` | Yo‘q | Default `12` |
-| `SEND_ERROR_MESSAGE` | Yo‘q | Default `true` |
-| `MANUAL_REPLY_PAUSE_SECONDS` | Yo‘q | Default `1800` (30 daqiqa) |
-| `DATABASE_URL` | **Majburiy (Vercel’da)** | Neon PostgreSQL connection string — quyidagi ogohlantirishni o‘qing |
-| `ADMIN_USER_ID` | **Majburiy — o‘zingizning ID’ingizga o‘zgartiring** | Sizning shaxsiy Telegram raqamli ID’ingiz — pastdagi ogohlantirishni o‘qing |
-| `UPSTASH_REDIS_REST_URL` | Muqobil | Neon ishlatilmasa Upstash Redis REST endpointi |
-| `UPSTASH_REDIS_REST_TOKEN` | Muqobil | Neon ishlatilmasa Upstash Redis REST tokeni |
-
-Vercel’ning Production URL’i avtomatik ravishda `VERCEL_PROJECT_PRODUCTION_URL` orqali olinadi. Zarur bo‘lsa `PUBLIC_BASE_URL` ni `https://your-project.vercel.app` ko‘rinishida qo‘shish mumkin. URL oxirida `/` bo‘lmasin.
-
-### ⚠️ MUHIM: `DATABASE_URL` bo‘lmasa, sozlamalar/tugmalar "ishlamayotganday" ko‘rinadi
-
-Vercel’ning har bir funksiya chaqiruvi (webhook so‘rovi) alohida, vaqtinchalik
-konteynerlarda ishlaydi — fayl tizimiga yozilgan narsalar keyingi so‘rovda
-**yo‘qoladi**. Agar `DATABASE_URL` (Neon Postgres) sozlanmagan bo‘lsa, bot
-avtomatik ravishda `JsonStore` (mahalliy `data/conversations.json`) ga
-qaytadi. Natijada:
-
-- `.settings` yoki `.list` ichidagi "on/off" tugmalarini bossangiz, o‘sha
-  zahoti o‘zgargandek ko‘rinadi (chunki o‘sha bitta so‘rov ichida yozib
-  o‘qilyapti), lekin **keyingi tugma bosilganda yoki keyingi xabar kelganda
-  hammasi eski holatiga qaytadi** — chunki yangi so‘rov butunlay yangi,
-  bo‘sh `JsonStore` bilan boshlanadi.
-- `.add` orqali qo‘shilgan avto-javoblar, `.settings` orqali o‘zgartirilgan
-  sozlamalar, VIP holati — barchasi shunga o‘xshab "unutiladi".
-
-Bu **kod xatosi emas**, balki Vercel serverless arxitekturasining tabiati.
-Shu sabab endi bot ishga tushganda, agar `VERCEL` muhitida ishlab
-`DATABASE_URL` topilmasa, `.settings` va `.list` xabarlarining boshida
-avtomatik ⚠️ ogohlantirish banneri chiqadi va server loglariga
-`CRITICAL` daражali xabar yoziladi.
-
-**Yechim:** [Neon](https://neon.tech) da bepul Postgres bazasi yarating,
-connection stringni `DATABASE_URL` sifatida Vercel’ning Environment
-Variables bo‘limiga qo‘shing va qayta deploy qiling.
-
-### ⚠️ MUHIM: `ADMIN_USER_ID` ni albatta o‘zingizning Telegram ID’ingizga o‘zgartiring
-
-Avvalgi versiyada owner (egasi) ID’si **kodning ichiga qattiq yozilgan**
-(`8645314130`) edi — `ADMIN_USER_ID` environment variable’ni o‘zgartirsangiz
-ham, bot baribir sizni "owner" deb tanimas edi (bu haqiqiy bug edi, endi
-tuzatildi). Natijada:
-
-- `/admin`, `/rol`, VIP berish/olish, kanal boshqaruvi, xabar yuborish,
-  menyu media sozlamalari kabi **owner-only** bo‘limlarning barchasi
-  ishlamas edi (chunki siz "admin emassiz" deb hisoblanardingiz)
-
-Endi bu to‘liq sozlanadi: `ADMIN_USER_ID` ga **o‘zingizning shaxsiy Telegram
-raqamli ID’ingizni** kiriting (username emas, raqam — masalan `@userinfobot`
-orqali bilib olishingiz mumkin), Vercel’da qayta deploy qiling. Shundan so‘ng
-o‘sha Telegram akkaunt bilan botga yozganingizda siz to‘liq owner
-huquqlariga ega bo‘lasiz.
-
-## Deploy va webhook
-
-Yangi private repository Vercel project’ga ulangach, Production deployment qiling. Production URL tayyor bo‘lgandan keyin Telegram webhook’ni yangi `WEBHOOK_SECRET` bilan quyidagicha o‘rnating:
+Production deploy’dan keyin webhook’ni quyidagicha o‘rnating:
 
 ```bash
-curl -sS -X POST "https://api.telegram.org/bot<NEW_BOT_TOKEN>/setWebhook" \
+curl -sS -X POST "https://api.telegram.org/bot< BOT_TOKEN >/setWebhook" \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "https://<YOUR_PRODUCTION_DOMAIN>/webhook/<WEBHOOK_SECRET>",
+    "url": "https://<YOUR_DOMAIN>/webhook/<WEBHOOK_SECRET>",
     "secret_token": "<WEBHOOK_SECRET>",
-    "allowed_updates": ["business_connection", "business_message", "edited_business_message", "deleted_business_messages"],
-    "drop_pending_updates": false
+    "allowed_updates": ["message", "business_connection", "business_message"]
   }'
 ```
 
-`<NEW_BOT_TOKEN>` va `<WEBHOOK_SECRET>` shell history’ga tushmasligi uchun bu buyruqni password manager yoki xavfsiz terminal sessiyasida bajaring. Vercel URL’ni Preview deployment’dan emas, Production deployment’dan oling.
+`< BOT_TOKEN >` orasidagi bo‘shliqni haqiqiy token bilan almashtiring.
 
-Health check uchun Production URL’ni brauzerda oching:
-
-```text
-https://<YOUR_PRODUCTION_DOMAIN>/
-```
-
-`Telegram AI bot webhook is running` javobi ko‘rinsa, function ishlayapti. Webhook holatini tekshirish:
+## Lokal test
 
 ```bash
-curl -sS "https://api.telegram.org/bot<NEW_BOT_TOKEN>/getWebhookInfo"
-```
-
-## Mahalliy sinov
-
-```bash
-cd telegram_ai_business_bot
-cp .env.example .env
-chmod 600 .env
+export BOT_TOKEN="..."
 python3 app.py
 ```
 
-Mahalliy polling testida `WEBHOOK_SECRET` kerak emas. Vercel webhook testida esa alohida public HTTPS URL va Telegram `setWebhook` kerak bo‘ladi. Kod credentiallarsiz kompilyatsiya va unit testlardan o‘tkazilgan.
+Testlar:
 
-## Admin panel
-
-Botning shaxsiy chatida `/admin` buyrug‘i owner va faol premium userlar uchun ochiladi. `ADMIN_USER_ID` da ko‘rsatilgan owner ID to‘liq panel, jumladan statistika, AI roli va 30 daqiqalik manual pause boshqaruviga ega. Premium userlar panelida statistika tugmasi bo‘lmaydi; ular shaxsiy rol va pause boshqaruvidan foydalanadi. `⏱ Pause` bo‘limidagi tugma bilan bu funksiyani istalgan payt yoqing yoki o‘chiring; tanlangan holat Neon’dagi `telegram_settings` jadvalida saqlanadi. Oddiy premium bo‘lmagan user `/admin` yoki `/rol` yuborsa, bot `Siz admin emassiz.` deb javob beradi. Admin panel tugmalari ham har bir callback’da qayta tekshiriladi.
-
-## APK fayllarini o‘chirish
-
-Business chatga mijoz `.apk` fayl yuborsa, bot AI javobi bermasdan `deleteBusinessMessages` orqali shu xabarni chatning ikki tomonida o‘chirishga urinadi. Buning uchun Telegram Business ulanishida botga **delete all messages** (`can_delete_all_messages`) huquqini bering. Huquq berilmagan bo‘lsa, Telegram o‘chirishni rad etadi va xato Vercel logiga yoziladi.
-
-## 30 daqiqalik qo‘lda yozish pauzasi
-
-Bot har bir Business chatni alohida kuzatadi. Agar admin panelda manual pause yoqilgan bo‘lsa va akkaunt egasi userga qo‘lda xabar yuborsa, shu chatda avtomatik javoblar 30 daqiqaga pauzalanadi. Funksiya admin paneldan o‘chirilsa, egasining qo‘lda yozgan xabari AI javoblarini pauzalamaydi. User 30 daqiqa ichida yana yozsa, bot javob bermaydi.
- 30 daqiqa o‘tgach user qayta yozsa, bot yana avtomatik javob beradi. Egasi shu chatga yana yozsa, taymer qaytadan 30 daqiqaga boshlanadi. Botning o‘zi yuborgan xabar taymerni qayta boshlamaydi.
-
-## Admin buyruqlari va AI roli
-
-Buyruqlarni mijoz chatiga emas, botning o‘z shaxsiy chatiga yuboring. `/id` Telegram user ID’ingizni ko‘rsatadi. `/rol Siz muloyim, qisqa va faqat o‘zbek tilida javob beradigan yordamchisiz.` buyrug‘i shu profilning AI uslubini saqlaydi. `/rol` joriy qo‘shimcha rolni ko‘rsatadi, `/rol reset` esa qo‘shimcha rolni olib tashlaydi. Qo‘shimcha rol berilmaguncha AI oddiy javob rejimida ishlaydi.
-
-Ownerning global `/rol` huquqi faqat `ADMIN_USER_ID` orqali sozlangan owner ID’ga tegishli. Premium user `/rol` orqali faqat o‘zining shaxsiy rolini boshqaradi. `DATABASE_URL` orqali Neon PostgreSQL ulangani sababli rol va suhbat tarixi yangi deploymentdan keyin ham saqlanadi. `telegram_settings` jadvalida global AI roli, `telegram_conversations` jadvalida har bir Business chat tarixi, `telegram_owner_pauses` jadvalida esa `business_connection_id + chat_id` bo‘yicha owner pause vaqti saqlanadi. Neon vaqtincha ishlamasa, bot xatoni logga yozib, javob oqimini xavfsiz fallback bilan davom ettiradi.
-
-## Premium subscription
-
-Botning shaxsiy chatida `/premium` yuborilganda premium user paneli ochiladi. Oylik subscription 100 Telegram Stars turadi va `XTR` invoice orqali 30 kunlik recurring access beradi. Premium funksiyalar faqat Telegram `successful_payment` update’idan keyin ochiladi; pre-checkout bosqichi o‘zi access bermaydi. To‘lovlar Neon’dagi `telegram_star_payments` va `telegram_premium_access` jadvallarida saqlanadi.
-
-Har bir premium user alohida suhbat tarixi, shaxsiy AI roli va pause sozlamasiga ega bo‘ladi; bu ma’lumotlar boshqa userlarga aralashmaydi. Premium user `/admin` panelidan statistikasiz foydalanadi va faqat `/rol` orqali o‘z shaxsiy AI uslubini sozlaydi. Statistika bo‘limi alohida bot boshqaruv huquqi sifatida qoladi.
-
-## Provider tanlash
-
-Manus ishlatish uchun `AI_PROVIDER=manus` va `MANUS_API_KEY` yetarli. Manus v2 tasklari asinxron bo‘lgani sabab adapter task yaratadi, statusni tekshiradi va `assistant_message` natijasini oladi. OpenAI uchun `AI_PROVIDER=openai`, Qwen uchun `AI_PROVIDER=qwen` tanlang. `auto` rejimida OpenAI, Qwen va Manus shu tartibda fallback sifatida ishlaydi.
-
-API key autentifikatsiya satridir; “API key tokeni ko‘p yoki kam” degan taqqoslash qilinmaydi. Xarajat modelning input/output tokenlari bo‘yicha hisoblanadi. OpenAI tariflari modelga, Qwen/DashScope tariflari esa model va regionga bog‘liq.
-
-## Xavfsizlik
-
-Bot tokeni va AI key’larini `.env`, Git history, README yoki source code’ga yozmang. Ushbu chatga yuborilgan qiymatlar komprometatsiya qilingan hisoblanadi va production’da ishlatilmasligi kerak. Vercel’da secretlarni faqat Environment Variables orqali saqlang. `WEBHOOK_SECRET` Telegram webhook URL path’i va secret header uchun bir xil, uzun va taxmin qilib bo‘lmaydigan qiymat bo‘lsin.
-
-## Rasmiy manbalar
-
-1. [Telegram Bot API](https://core.telegram.org/bots/api) — `business_message`, `business_connection`, `business_connection_id`, `can_connect_to_business`, `BusinessBotRights` va `sendMessage`.
-2. [Connected business bots](https://core.telegram.org/api/bots/connected-business-bots) — botni profilga ulash va foydalanuvchi nomidan javob berish modeli.
-3. [Telegram Business](https://core.telegram.org/api/business) — connected bots Premiumsiz foydalanuvchilar uchun ham mavjudligi.
-4. [Telegram Bot API changelog](https://core.telegram.org/bots/api-changelog) — Business Bots’ning Premiumsiz user accountlarni boshqarishi.
-5. [Telegram Chat Automation e’loni](https://telegram.org/blog/ai-bot-revolution-11-new-features) — “Chat Automation in Profiles”.
-6. [OpenAI API pricing](https://developers.openai.com/api/docs/pricing) — model va token tariflari.
-7. [Alibaba Cloud Model Studio pricing](https://www.alibabacloud.com/help/en/model-studio/model-pricing) — Qwen/DashScope model tariflari.
-
-## Owner-only boshqaruv funksiyalari
-
-Admin panelda `💎 VIP boshqaruvi`, `📢 Kanal boshqaruvi` va `✉️ Xabar yuborish` bo‘limlari faqat `ADMIN_USER_ID` orqali sozlangan owner ID uchun ko‘rinadi. VIP boshqaruvi userga kunlik VIP berish, VIP accessni olish va faol VIP userlar ro‘yxatini ko‘rsatishni qo‘llab-quvvatlaydi.
-
-Kanal boshqaruvi reference botdagi kabi ommaviy, asosiy, majburiy obuna, private/so‘rovli va oddiy URL kanal turlarini qabul qiladi. Ommaviy/asosiy/majburiy kanallar username yoki chat ID orqali qo‘shiladi; private kanal forward qilingan xabar va invite link orqali, URL kanal esa havola orqali saqlanadi. Kanallar ro‘yxatini ko‘rish va o‘chirish ham mavjud. Bot kanalga xabar yuborishi uchun Telegram’da o‘sha kanalga administrator huquqi berilishi kerak.
-
-Xabar yuborish bo‘limi bitta userga, barcha boshlangan userlarga, faol VIP userlarga, oddiy userlarga yoki tanlangan kanallarga xabar yuboradi. Kontent sifatida oddiy matn yoki forward qilingan Telegram xabari ishlatiladi; selected-channel oqimida kanallar alohida checkbox bilan tanlanadi. Har bir amal owner callback authorization bilan himoyalangan; VIP userlar admin panelining odatiy bo‘limlaridan foydalanishi mumkin, lekin ushbu uchta owner-only bo‘limni ko‘rmaydi va callback orqali ham ishga tushira olmaydi. Admin sessionlari Neon’da saqlanadi, shuning uchun Vercel cold start’dan keyin ham ko‘p bosqichli amal davom etadi.
-
-## Majburiy kanal obunasi
-
-Oddiy va VIP user `/start` yuborganda, required sifatida belgilangan kanallar bo‘lsa, bot avval kanal obunasi yoki join request yuborishni so‘raydi. Oyna matni `Botdan foydalanish uchun quyidagi kanal(lar)ga obuna yoki zayavka tashlang va Tekshirish ✅ tugmasini bosing!` bo‘ladi. Har bir kanal alohida `💠 1-kanal`, `💠 2-kanal` kabi inline URL tugmasida chiqadi va pastida `Tekshirish ✅` tugmasi turadi.
-
-User kanalga oddiy a’zo bo‘lsa yoki join request yuborgan bo‘lsa, tekshiruv muvaffaqiyatli hisoblanadi; kanal administratori join requestni qo‘lda tasdiqlashi shart emas. Buning uchun bot required channel’da join requestlarni ko‘ra oladigan administrator huquqiga ega bo‘lishi kerak. Obuna yoki request tasdiqlanmaguncha start menyusi, VIP va boshqa private funksiyalar ochilmaydi.
-
-## Universal menyu va qo‘llanmalar
-
-`/start` buyrug‘i owner, oddiy user va VIP user uchun bir xil universal menyuni ko‘rsatadi. Menyuda `📚 Buyruqlar`, `🦉 Qo‘llanma`, `👤 Profilim`, `⚙️ Sozlamalar` va `💬 Avto javoblar ro‘yxati` bo‘limlari mavjud. `Buyruqlar` ikki sahifali bo‘lib, sahifalar orasida `Davomi`, `Avvalgi sahifa` va `Orqaga` tugmalari ishlaydi.
-
-`Qo‘llanma` bo‘limida Chatbotni ulash videosi va `Foydalanish qo‘llanmasi` tugmasi mavjud. Ikkinchi tugma Chatbotdan foydalanish videosini ochadi. Har bir qo‘llanma ekranida orqaga qaytish tugmasi bor. Asosiy kanal `is_main` sifatida saqlangan bo‘lsa, qo‘llanma captionida `Kanalimiz: @username` avtomatik ko‘rsatiladi.
-
-## Owner-only menyu media sozlamalari
-
-Admin panelidagi `🖼 Menyu media sozlamalari` bo‘limi faqat `ADMIN_USER_ID` orqali sozlangan owner ID uchun ko‘rinadi. Bu bo‘limdan start rasmi, Buyruqlar rasmi, Chatbotni ulash videosi va Chatbotdan foydalanish videosini alohida yuklash, almashtirish yoki o‘chirish mumkin. Rasm yoki video botning shaxsiy chatiga yuboriladi; bot Telegram bergan `file_id` qiymatini Neon’dagi `telegram_settings` jadvalida saqlaydi va faylning o‘zini bazaga yozmaydi.
-
-Media sozlamalari mavjud bo‘lmasa, bot avtomatik ravishda matnli fallback ekranini ko‘rsatadi. VIP va oddiy userlar bu admin tugmasini ko‘rmaydi; `owner:media:*` callbacklari qo‘lda yuborilganda ham authorization tekshiruvidan o‘tmaydi. VIP boshqaruvi, majburiy va umumiy kanal boshqaruvi hamda xabar yuborish bo‘limlari ham xuddi shu tarzda faqat `ADMIN_USER_ID` uchun yopiq.
-
-Media yuklash tartibi: `/admin` → `🖼 Menyu media sozlamalari` → kerakli media turi → mos rasm yoki video yuborish. Rasm bo‘limlariga photo, video bo‘limlariga video yuborish kerak; jarayonni `/cancel` bilan bekor qilish mumkin.
-
-## Profilim, VIP va Sozlamalar oqimlari
-
-Universal menyudagi `👤 Profilim` ekranida balans va taklif/referral qatorlari ko‘rsatilmaydi. `Bepul`, `Pro` va `Biznes` tarif tugmalari o‘rniga `VIP 💎` tugmasi mavjud. VIP ekrani limitlar va imkoniyatlarni quyidagi ko‘rinishda beradi: `📩 Avto javoblar: 100 ta`, `🤖 AI avto javob (kunlik): 500 ta`, `🧠 «.ai» savol (kunlik): 100 ta`, `🖼 «.img» / «.rasm» (kunlik): 5 ta` hamda bepul tarifga qo‘shimcha VIP imkoniyatlari. VIP sotib olish tugmasi mavjud 100 Telegram Stars/30 kunlik invoice oqimidan foydalanadi.
-
-`💳 Balansni to‘ldirish` ekranida faqat `⭐ Avto to‘lov (stars)` tugmasi qoldirilgan. So‘m balans, takliflar, taklif havolasi va karta to‘lovi haqidagi elementlar bu oqimda ko‘rsatilmaydi. `⚙️ Sozlamalar` ekranidagi `🟢 Chatbotni sozlash` tugmasi Telegram `tg://settings/edit` deep-linkini ochadi. Profil, VIP, balans va Sozlamalar ekranlarining barchasida qaytish tugmasi mavjud.
-
-## Tahrirlash va O‘chirishlar sozlamalari
-
-Oddiy userlar, VIP userlar va owner Sozlamalar ekranidagi `✏️ Tahrirlash` va `🗑 O‘chirishlar` bo‘limlarida bildirishnomani yoqishi yoki o‘chirishi, xabarni `Suhbatdoshga` yoki `Botga` yuborishni tanlashi, `Bildirishnoma` yoki xabar nusxasi turini belgilashi va yuborilgan/tahrirlangan yoki o‘chirilgan vaqtni ko‘rsatishni boshqarishi mumkin. Ushbu tanlovlar userga alohida bog‘lanadi va Neon’dagi `telegram_user_settings.preferences` JSONB ustunida saqlanadi; fallback storage’larda ham user bo‘yicha saqlanadi.
-
-Business customer xabari tahrirlanganda yoki o‘chirilganda bot ushbu settings sozlamalarini o‘qiydi. Bildirishnoma `Suhbatdoshga` tanlansa Business chatga, `Botga` tanlansa Business akkaunt egasining bot chatiga yuboriladi. Tahrirlangan xabar uchun oldingi va yangi matn, o‘chirilgan xabar uchun saqlangan oxirgi matn ishlatiladi. Barcha userlarning settings callbacklari ishlaydi va sozlamalar userlar bo‘yicha alohida saqlanadi.
+```bash
+python3 -m unittest discover -s tests -v
+```
