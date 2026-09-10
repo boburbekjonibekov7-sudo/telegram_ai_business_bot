@@ -1,0 +1,9 @@
+# .down va .music buyruqlari uchun ixtiyoriy qo'shimcha kutubxona.
+# Bu Vercel serverless muhitida ishlamasligi mumkin (katta hajm, ffmpeg yo'q,
+# vaqt cheklovi). Faqat run.sh orqali doimiy ishlaydigan server/VPS muhitida
+# ishlatish tavsiya etiladi.
+#
+# O'rnatish:
+#   pip install -r requirements-optional.txt
+# Va tizimga ffmpeg o'rnating (masalan: apt install ffmpeg).
+yt-dlp>=2024.8.6
