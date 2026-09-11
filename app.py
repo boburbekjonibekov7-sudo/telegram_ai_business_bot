@@ -801,8 +801,15 @@ class BusinessAiBot:
             await self._edit_owner_screen(chat_id, message_id, text, self._owner_channels_keyboard())
             return
         if data == "channel:delete":
-            self._set_owner_session(user_id, "channel_delete")
-            await self._edit_owner_screen(chat_id, message_id, "🗑 Kanalni o‘chirish\n\nO‘chiriladigan kanal chat ID sini yuboring:", self._owner_channels_keyboard())
+            await self._edit_owner_screen(chat_id, message_id, "🗑 O‘chiriladigan kanalni tanlang:", self._owner_channel_delete_keyboard())
+            return
+        if data.startswith("channel:delete:"):
+            channel_id = data.split(":", 2)[2]
+            deleter = getattr(self.store, "delete_channel", None)
+            if callable(deleter):
+                deleter(channel_id)
+            await self.telegram.answer_callback_query(callback_id, "✅ Kanal o‘chirildi.", True)
+            await self._edit_owner_screen(chat_id, message_id, "✅ Kanal majburiy obunadan o‘chirildi.", self._owner_channels_keyboard())
             return
         if data == "owner:broadcast":
             await self._edit_owner_screen(chat_id, message_id, "✉️ Xabar yuborish\n\nKimga yuborishni tanlang:", self._owner_broadcast_keyboard())
@@ -2254,6 +2261,13 @@ Qisqa qo‘llanma (ochish uchun bosing):
                 channel_id = str(chat.get("id"))
                 if channel_id == "None":
                     raise TelegramApiError("getChat", "chat ID topilmadi")
+                get_me = getattr(self.telegram, "get_me", None)
+                get_member = getattr(self.telegram, "get_chat_member", None)
+                if callable(get_me) and callable(get_member):
+                    me = await get_me()
+                    member = await get_member(channel_id, int(me.get("id")))
+                    if str(member.get("status")) not in {"administrator", "creator"}:
+                        raise ValueError("bot bu kanalda administrator emas")
                 saver = getattr(self.store, "upsert_channel", None)
                 if callable(saver):
                     saver(channel_id, str(chat.get("title") or chat.get("first_name") or ""), str(chat.get("username") or ""), channel_type, channel_type == "required", channel_type == "main")
@@ -2279,6 +2293,17 @@ Qisqa qo‘llanma (ochish uchun bosing):
             forwarded_chat = message.get("forward_from_chat") or (origin.get("chat") if isinstance(origin, dict) else {}) or {}
             if not isinstance(forwarded_chat, dict) or not forwarded_chat.get("id"):
                 await self._send_chunks(chat_id, "❌ Kanal yoki guruhdan forward qilingan xabar yuboring.", None, reply_to, self._owner_channels_keyboard())
+                return True
+            try:
+                get_me = getattr(self.telegram, "get_me", None)
+                get_member = getattr(self.telegram, "get_chat_member", None)
+                if callable(get_me) and callable(get_member):
+                    me = await get_me()
+                    member = await get_member(str(forwarded_chat.get("id")), int(me.get("id")))
+                    if str(member.get("status")) not in {"administrator", "creator"}:
+                        raise ValueError("bot yopiq kanalda administrator emas")
+            except (TelegramApiError, ValueError) as exc:
+                await self._send_chunks(chat_id, f"❌ Avval botni kanalga administrator qiling: {exc}", None, reply_to, self._owner_channels_keyboard())
                 return True
             self._set_owner_session(user_id, "channel_add_private_link", {
                 "chat_id": str(forwarded_chat.get("id")),
@@ -2398,6 +2423,18 @@ Qisqa qo‘llanma (ochish uchun bosing):
             [{"text": "🗑 Kanalni o‘chirish", "callback_data": "channel:delete"}],
             [{"text": "🔙 Admin panel", "callback_data": "admin:home"}],
         ]}
+    def _owner_channel_delete_keyboard(self) -> dict[str, Any]:
+        getter = getattr(self.store, "list_channels", None)
+        channels = getter() if callable(getter) else []
+        rows: list[list[dict[str, str]]] = []
+        for channel in channels[:100]:
+            channel_id = str(channel.get("chat_id") or "")
+            if not channel_id:
+                continue
+            label = str(channel.get("title") or channel.get("username") or channel_id)
+            rows.append([{"text": f"🗑 {label}", "callback_data": f"channel:delete:{channel_id}"}])
+        rows.append([{"text": "🔙 Kanal boshqaruvi", "callback_data": "owner:channels"}])
+        return {"inline_keyboard": rows}
 
     def _owner_broadcast_keyboard(self) -> dict[str, Any]:
         return {"inline_keyboard": [
