@@ -249,8 +249,8 @@ class BusinessAiBot:
         cached = self._cached_business_message(owner_id, connection_id, chat_id, message_id) or {}
         old_text = str(cached.get("text") or "(oldingi xabar matni mavjud emas)")
         new_text = self._message_text(message) or "(matnsiz xabar)"
-        editor = (message.get("from") or {}).get("username") or cached.get("username")
-        mention = f"@{str(editor).lstrip('@')}" if editor else "@username"
+        editor = (message.get("from") or {})
+        mention = self._sender_label(editor, cached)
         notice = f"👤 {mention} suhbatdoshingiz xabarini tahrirladi ✏️\n\n💬 Avval:\n{old_text}\n\n✏️ Keyin:\n{new_text}"
         notice += f"\n\n🕔 Yuborilgan vaqt: {self._event_time(cached.get('date'))}\n🕔 Tahrirlangan vaqt: {self._event_time(message.get('edit_date'))}"
         await self._send_event_notice(owner_id, connection_id, chat_id, notice, "bot")
@@ -272,8 +272,7 @@ class BusinessAiBot:
             if cached.get("sender_id") == owner_id:
                 continue
             old_text = str(cached.get("text") or "(o‘chirilgan xabar matni mavjud emas)")
-            username = cached.get("username")
-            mention = f"@{str(username).lstrip('@')}" if username else "@username"
+            mention = self._sender_label({}, cached)
             notice = f"👤 {mention} suhbatdoshingiz xabarini o‘chirdi 🗑\n\n💬 Avval:\n{old_text}\n\n🗑 Keyin: xabar o‘chirildi"
             notice += f"\n\n🕔 Yuborilgan vaqt: {self._event_time(cached.get('date'))}\n🕔 O‘chirilgan vaqt: {self._event_time(update.get('date'))}"
             await self._send_event_notice(owner_id, connection_id, chat_id, notice, "bot")
@@ -325,6 +324,20 @@ class BusinessAiBot:
         text = message.get("text") or message.get("caption") or ""
         return str(text).strip()
 
+    @staticmethod
+    def _sender_label(sender: dict[str, Any], cached: dict[str, Any] | None = None) -> str:
+        cached = cached or {}
+        username = sender.get("username") or cached.get("username")
+        if username:
+            return f"@{str(username).lstrip('@')}"
+        first_name = sender.get("first_name") or cached.get("first_name") or ""
+        last_name = sender.get("last_name") or cached.get("last_name") or ""
+        full_name = " ".join(str(part).strip() for part in (first_name, last_name) if str(part).strip())
+        if full_name:
+            return full_name
+        sender_id = sender.get("id") or cached.get("sender_id")
+        return f"foydalanuvchi ({sender_id})" if sender_id else "noma’lum foydalanuvchi"
+
     def _message_cache(self, owner_id: int) -> dict[str, dict[str, Any]]:
         raw = self._user_setting(owner_id, "business_message_cache", "{}")
         try:
@@ -344,6 +357,8 @@ class BusinessAiBot:
             "text": self._message_text(message),
             "sender_id": (message.get("from") or {}).get("id") if isinstance((message.get("from") or {}).get("id"), int) else None,
             "username": (message.get("from") or {}).get("username"),
+            "first_name": (message.get("from") or {}).get("first_name"),
+            "last_name": (message.get("from") or {}).get("last_name"),
             "date": message.get("date") if isinstance(message.get("date"), int) else int(time.time()),
             "chat_id": chat_id,
             "connection_id": connection_id,
