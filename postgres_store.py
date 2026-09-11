@@ -666,12 +666,12 @@ class PostgresStore:
             self._ensure_schema()
             with self._connection() as connection:
                 with connection.cursor() as cursor:
-                    select_sql = "SELECT id, user_id, trigger, response, enabled, reply_in_message, reply_to_owner FROM telegram_auto_replies WHERE user_id = %s AND LOWER(trigger) = LOWER(%s) AND enabled = TRUE LIMIT 1"
+                    select_sql = "SELECT id, user_id, trigger, response, enabled, reply_in_message, reply_to_owner FROM telegram_auto_replies WHERE user_id = %s AND LOWER(trigger) = LOWER(%s) LIMIT 1"
                     cursor.execute(select_sql, (user_id, trigger))
                     row = cursor.fetchone()
                     if not row:
                         cursor.execute(
-                            "SELECT id, user_id, trigger, response, enabled, reply_in_message, reply_to_owner FROM telegram_auto_replies WHERE user_id = %s AND enabled = TRUE AND reply_in_message = TRUE AND LOWER(%s) LIKE '%' || LOWER(trigger) || '%' ORDER BY LENGTH(trigger) DESC LIMIT 1",
+                            "SELECT id, user_id, trigger, response, enabled, reply_in_message, reply_to_owner FROM telegram_auto_replies WHERE user_id = %s AND LOWER(%s) LIKE '%' || LOWER(trigger) || '%' ORDER BY LENGTH(trigger) DESC LIMIT 1",
                             (user_id, trigger),
                         )
                         row = cursor.fetchone()

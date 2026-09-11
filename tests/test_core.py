@@ -499,8 +499,7 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertNotIn("Salom Boburbek", start_text)
         self.assertIn("Chatbot accountingizga ulangan", start_text)
         buttons = [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row]
-        self.assertIn("📚 Buyruqlar", buttons)
-        self.assertIn("🦉 Qo‘llanma", buttons)
+        self.assertEqual(buttons, ["👤 Profilim", "💬 Avto javoblar ro‘yxati"])
         self.assertNotIn("/premium", start_text)
         self.assertNotIn("Manus", start_text)
         self.assertNotIn("promo", start_text.casefold())
@@ -517,8 +516,7 @@ class AdminPanelAndApkTests(unittest.TestCase):
         bot = self._bot()
         asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 8645314130}, "from": {"id": 8645314130}, "text": "/start"}}))
         buttons = [button["text"] for row in bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"] for button in row]
-        self.assertIn("📚 Buyruqlar", buttons)
-        self.assertIn("🦉 Qo‘llanma", buttons)
+        self.assertEqual(buttons, ["👤 Profilim", "💬 Avto javoblar ro‘yxati"])
 
     def test_about_and_main_menu_callbacks_stay_in_one_message(self) -> None:
         bot = self._bot()
@@ -532,7 +530,7 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertEqual(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"], "menu:home")
         asyncio.run(bot.process_update({"callback_query": {"id": "home-1", "from": user, "data": "menu:home", "message": {"chat": {"id": 1242}, "message_id": 10}}}))
         self.assertIn("Chatbot accountingizga ulangan", bot.telegram.sent[-1]["text"])
-        self.assertEqual(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["text"], "📚 Buyruqlar")
+        self.assertEqual(bot.telegram.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["text"], "👤 Profilim")
         home_message_count = len(bot.telegram.sent)
         asyncio.run(bot.process_update({"callback_query": {"id": "premium-1", "from": user, "data": "premium:status", "message": {"chat": {"id": 1242}, "message_id": 10}}}))
         self.assertEqual(len(bot.telegram.sent), home_message_count + 1)
@@ -610,11 +608,11 @@ class AdminPanelAndApkTests(unittest.TestCase):
         user = {"id": 1255}
         base = {"chat": {"id": 1255}, "message_id": 10}
         asyncio.run(bot.process_update({"callback_query": {"id": "auto-list", "from": user, "data": "menu:auto_replies", "message": base}}))
-        self.assertIn(".help ni ishlatish: Hamma", bot.telegram.edited_media[-1]["caption"])
+        self.assertNotIn("Buyruqlar ruxsati", bot.telegram.edited_media[-1]["caption"])
         asyncio.run(bot.process_update({"callback_query": {"id": "auto-help-off", "from": user, "data": "auto:toggle:help", "message": base}}))
         self.assertEqual(bot.store.get_user_setting(1255, "auto_reply_help_permission"), "none")
         self.assertEqual(bot.telegram.callback_answers[-1], ("auto-help-off", ".help buyrug‘i: Hech kim ✅", True))
-        self.assertIn(".help ni ishlatish: Hech kim", bot.telegram.edited_media[-1]["caption"])
+        self.assertNotIn("Buyruqlar ruxsati", bot.telegram.edited_media[-1]["caption"])
 
     def test_profile_auto_replies_settings_media_callbacks_edit_one_message(self) -> None:
         bot = self._bot()
@@ -639,7 +637,7 @@ class AdminPanelAndApkTests(unittest.TestCase):
         bot.store.set_setting("start_media_file_id", "start-photo")
         asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1252}, "from": {"id": 1252}, "text": "/start"}}))
         self.assertEqual(bot.telegram.photos[-1]["photo"], "start-photo")
-        self.assertIn("📚 Buyruqlar", [button["text"] for row in bot.telegram.photos[-1]["reply_markup"]["inline_keyboard"] for button in row])
+        self.assertIn("👤 Profilim", [button["text"] for row in bot.telegram.photos[-1]["reply_markup"]["inline_keyboard"] for button in row])
 
     def test_vip_profile_shows_vip_tariff_and_limits(self) -> None:
         bot = self._bot()
@@ -828,8 +826,8 @@ class AdminPanelAndApkTests(unittest.TestCase):
         bot.store.set_user_setting(8645314130, "settings_read_enabled", "0")
         incoming = {"message_id": 78, "business_connection_id": "bc-1", "chat": {"id": 9002}, "from": {"id": 1267}, "date": 1700000000, "text": "Salom"}
         asyncio.run(bot.process_update({"business_message": incoming}))
-        self.assertEqual(bot.telegram.typing_calls, [])
-        self.assertEqual(bot.telegram.read_business_calls, [])
+        self.assertEqual(len(bot.telegram.typing_calls), 1)
+        self.assertEqual(len(bot.telegram.read_business_calls), 1)
         bot.store.set_user_setting(8645314130, "settings_typing_enabled", "1")
         bot.store.set_user_setting(8645314130, "settings_read_enabled", "1")
         incoming["message_id"] = 79

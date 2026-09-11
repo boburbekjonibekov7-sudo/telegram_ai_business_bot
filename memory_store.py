@@ -272,11 +272,11 @@ class MemoryStore:
     def find_auto_reply(self, user_id: int, trigger: str) -> dict[str, object] | None:
         wanted = str(trigger).strip().casefold()
         with self.lock:
-            rows = [row for row in self.auto_replies.get(int(user_id), {}).values() if row.get("enabled", True)]
+            rows = list(self.auto_replies.get(int(user_id), {}).values())
             exact = next((row for row in rows if str(row.get("trigger", "")).casefold() == wanted), None)
             if exact:
                 return dict(exact)
-            containing = [row for row in rows if row.get("reply_in_message") and str(row.get("trigger", "")).casefold() in wanted]
+            containing = [row for row in rows if str(row.get("trigger", "")).casefold() in wanted]
             if containing:
                 return dict(max(containing, key=lambda row: len(str(row.get("trigger", "")))))
         return None

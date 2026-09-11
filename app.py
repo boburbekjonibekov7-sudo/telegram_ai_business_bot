@@ -246,21 +246,14 @@ class BusinessAiBot:
             return
         if self._user_id(message) == owner_id:
             return
-        if self._user_setting(owner_id, "edit_notify_enabled", "0") != "1":
-            return
         cached = self._cached_business_message(owner_id, connection_id, chat_id, message_id) or {}
         old_text = str(cached.get("text") or "(oldingi xabar matni mavjud emas)")
         new_text = self._message_text(message) or "(matnsiz xabar)"
-        destination = self._user_setting(owner_id, "edit_notify_destination", "chat")
-        message_type = self._user_setting(owner_id, "edit_notify_type", "notification")
-        show_time = self._user_setting(owner_id, "edit_notify_timestamp", "0") == "1"
-        if message_type == "copy":
-            notice = new_text
-        else:
-            notice = f"👤 Suhbatdoshingiz xabarini tahrirladi ✏️\n\n💬 {old_text}\n\n✏️ {new_text}"
-        if show_time:
-            notice += f"\n\n🕔 Yuborilgan vaqt: {self._event_time(cached.get('date'))}\n🕔 Tahrirlangan vaqt: {self._event_time(message.get('edit_date'))}"
-        await self._send_event_notice(owner_id, connection_id, chat_id, notice, destination)
+        editor = (message.get("from") or {}).get("username") or cached.get("username")
+        mention = f"@{str(editor).lstrip('@')}" if editor else "@username"
+        notice = f"👤 {mention} suhbatdoshingiz xabarini tahrirladi ✏️\n\n💬 Avval:\n{old_text}\n\n✏️ Keyin:\n{new_text}"
+        notice += f"\n\n🕔 Yuborilgan vaqt: {self._event_time(cached.get('date'))}\n🕔 Tahrirlangan vaqt: {self._event_time(message.get('edit_date'))}"
+        await self._send_event_notice(owner_id, connection_id, chat_id, notice, "bot")
         self._remember_business_message(owner_id, message)
 
     async def _handle_deleted_business_messages(self, update: dict[str, Any]) -> None:
@@ -272,11 +265,6 @@ class BusinessAiBot:
         owner_id = await self._business_owner_id(connection_id)
         if not isinstance(owner_id, int):
             return
-        if self._user_setting(owner_id, "delete_notify_enabled", "1") != "1":
-            return
-        destination = self._user_setting(owner_id, "delete_notify_destination", "bot")
-        message_type = self._user_setting(owner_id, "delete_notify_type", "notification")
-        show_time = self._user_setting(owner_id, "delete_notify_timestamp", "0") == "1"
         for raw_message_id in message_ids[:100]:
             if not isinstance(raw_message_id, int):
                 continue
@@ -284,13 +272,11 @@ class BusinessAiBot:
             if cached.get("sender_id") == owner_id:
                 continue
             old_text = str(cached.get("text") or "(o‘chirilgan xabar matni mavjud emas)")
-            if message_type == "copy":
-                notice = old_text
-            else:
-                notice = f"👤 Suhbatdoshingiz xabarini o‘chirdi 🗑\n\n💬 {old_text}"
-            if show_time:
-                notice += f"\n\n🕔 Yuborilgan vaqt: {self._event_time(cached.get('date'))}\n🕔 O‘chirilgan vaqt: {self._event_time(update.get('date'))}"
-            await self._send_event_notice(owner_id, connection_id, chat_id, notice, destination)
+            username = cached.get("username")
+            mention = f"@{str(username).lstrip('@')}" if username else "@username"
+            notice = f"👤 {mention} suhbatdoshingiz xabarini o‘chirdi 🗑\n\n💬 Avval:\n{old_text}\n\n🗑 Keyin: xabar o‘chirildi"
+            notice += f"\n\n🕔 Yuborilgan vaqt: {self._event_time(cached.get('date'))}\n🕔 O‘chirilgan vaqt: {self._event_time(update.get('date'))}"
+            await self._send_event_notice(owner_id, connection_id, chat_id, notice, "bot")
             self._forget_business_message(owner_id, connection_id, chat_id, raw_message_id)
 
     def _cache_connection(self, connection: dict[str, Any]) -> None:
@@ -357,6 +343,7 @@ class BusinessAiBot:
         cache[f"{connection_id}:{chat_id}:{message_id}"] = {
             "text": self._message_text(message),
             "sender_id": (message.get("from") or {}).get("id") if isinstance((message.get("from") or {}).get("id"), int) else None,
+            "username": (message.get("from") or {}).get("username"),
             "date": message.get("date") if isinstance(message.get("date"), int) else int(time.time()),
             "chat_id": chat_id,
             "connection_id": connection_id,
@@ -597,9 +584,8 @@ class BusinessAiBot:
                 )
                 return
             if self._is_apk_message(message) and user_id != business_owner_id and isinstance(business_owner_id, int):
-                if self._user_setting(business_owner_id, "settings_apk_delete_enabled", "1") == "1":
-                    await self._delete_business_apk(message, business_connection_id)
-                    return
+                await self._delete_business_apk(message, business_connection_id)
+                return
             if isinstance(business_owner_id, int) and user_id != business_owner_id:
                 self._remember_business_message(business_owner_id, message)
 
@@ -665,7 +651,8 @@ class BusinessAiBot:
                     LOGGER.warning("Auto-reply trigger qidirilmadi: %s", exc)
                     custom_reply = None
                 if isinstance(custom_reply, dict):
-                    reply_to = message.get("message_id") if custom_reply.get("reply_in_message") else None
+                    # Avto javob va xabar ichidagi trigger bu rebuildda doim faol.
+                    reply_to = message.get("message_id")
                     await self._send_chunks(chat_id, self._with_time_signature(reply_owner_id, str(custom_reply.get("response") or "")), business_connection_id, reply_to)
                     if is_business and custom_reply.get("reply_to_owner") and isinstance(business_owner_id, int):
                         await self._send_chunks(business_owner_id, f"📩 Avto javob yuborildi.\n\nTrigger: {custom_reply.get('trigger')}\nJavob: {custom_reply.get('response')}", None, None)
@@ -692,8 +679,7 @@ class BusinessAiBot:
             history.append({"role": "user", "content": text})
             try:
                 try:
-                    if not is_business or not isinstance(business_owner_id, int) or self._user_setting(business_owner_id, "settings_typing_enabled", "1") == "1":
-                        await self.telegram.send_typing(chat_id, business_connection_id)
+                    await self.telegram.send_typing(chat_id, business_connection_id)
                 except TelegramApiError as exc:
                     # Typing is cosmetic; a Telegram limitation must not block the AI reply.
                     LOGGER.warning("Typing action yuborilmadi, AI javobi davom etadi: %s", exc)
@@ -718,7 +704,7 @@ class BusinessAiBot:
                 business_connection_id,
                 message.get("message_id"),
             )
-            if is_business and isinstance(business_owner_id, int) and self._user_setting(business_owner_id, "settings_read_enabled", "1") == "1":
+            if is_business and isinstance(business_owner_id, int):
                 read_method = getattr(self.telegram, "read_business_message", None)
                 if callable(read_method) and isinstance(message.get("message_id"), int):
                     try:
@@ -1385,8 +1371,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
 
     def _main_menu_keyboard(self, premium_active: bool = False) -> dict[str, Any]:
         return {"inline_keyboard": [
-            [{"text": "📚 Buyruqlar", "callback_data": "menu:commands"}, {"text": "🦉 Qo‘llanma", "callback_data": "menu:guide"}],
-            [{"text": "👤 Profilim", "callback_data": "menu:profile"}, {"text": "⚙️ Sozlamalar", "callback_data": "menu:settings"}],
+            [{"text": "👤 Profilim", "callback_data": "menu:profile"}],
             [{"text": "💬 Avto javoblar ro‘yxati", "callback_data": "menu:auto_replies"}],
         ]}
 
@@ -1546,10 +1531,6 @@ Qisqa qo‘llanma (ochish uchun bosing):
         lines = [self._persistence_warning() + "💬 Avto javoblar ro‘yxati"]
         if notice:
             lines.extend(["", notice])
-        lines.extend(["", "⚙️ Buyruqlar ruxsati:"])
-        for command in AUTO_REPLY_COMMANDS:
-            status = "Hamma" if self._user_setting(user_id or 0, f"auto_reply_{command}_permission", "all") == "all" else "Hech kim"
-            lines.append(f".{command} ni ishlatish: {status}")
         records = self._list_auto_replies(user_id)
         lines.extend(["", "📩 Shaxsiy avto javoblar:"])
         if records:
@@ -1570,7 +1551,6 @@ Qisqa qo‘llanma (ochish uchun bosing):
                 {"text": "✏️ Tahrirlash", "callback_data": f"auto:edit:{record_id}"},
                 {"text": "🗑 O‘chirish", "callback_data": f"auto:delete:{record_id}"},
             ])
-        rows.append([{"text": "⚙️ Buyruqlar ruxsati", "callback_data": "auto:permissions"}])
         rows.append([{"text": "🔙 Orqaga", "callback_data": "menu:home"}])
         return {"inline_keyboard": rows}
 
@@ -1596,8 +1576,8 @@ Qisqa qo‘llanma (ochish uchun bosing):
 
     @staticmethod
     def _auto_reply_detail_text(record: dict[str, object]) -> str:
-        enabled = "on" if record.get("enabled", True) else "off"
-        in_message = "on" if record.get("reply_in_message", False) else "off"
+        enabled = "on"
+        in_message = "on"
         to_owner = "on" if record.get("reply_to_owner", False) else "off"
         return (f"💬 Avto javob\n\nSuhbatdosh: barcha suhbatdoshlar\nTrigger: {record.get('trigger', '')}\n"
                 f"Javob: {record.get('response', '')}\n\nAvto javob: {enabled}\n"
@@ -1606,12 +1586,10 @@ Qisqa qo‘llanma (ochish uchun bosing):
     @staticmethod
     def _auto_reply_detail_keyboard(record: dict[str, object]) -> dict[str, Any]:
         record_id = int(record.get("id", 0))
-        state = "on" if record.get("enabled", True) else "off"
-        in_message = "on" if record.get("reply_in_message", False) else "off"
+        state = "on"
+        in_message = "on"
         to_owner = "on" if record.get("reply_to_owner", False) else "off"
         return {"inline_keyboard": [
-            [{"text": f"Avto javob: {state}", "callback_data": f"auto:option:{record_id}:enabled"}],
-            [{"text": f"Xabar ichida soz bo‘lsa: {in_message}", "callback_data": f"auto:option:{record_id}:reply_in_message"}],
             [{"text": f"O‘zimga javob bersin: {to_owner}", "callback_data": f"auto:option:{record_id}:reply_to_owner"}],
             [{"text": "✏️ Javobni tahrirlash", "callback_data": f"auto:edit:{record_id}"}],
             [{"text": "🗑 Avto javobni o‘chirish", "callback_data": f"auto:delete:{record_id}"}],
