@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import os
@@ -780,7 +779,7 @@ class BusinessAiBot:
             await self._edit_owner_screen(chat_id, message_id, self._owner_channels_text(), self._owner_channels_keyboard())
             return
         if data == "channel:list":
-            await self._edit_owner_screen(chat_id, message_id, self._owner_channels_text(), self._owner_channels_keyboard())
+            await self._edit_owner_screen(chat_id, message_id, self._owner_channels_text(), self._owner_channel_back_keyboard())
             return
         if data == "channel:add":
             await self._edit_owner_screen(chat_id, message_id, "➕ Kanal qo‘shish\n\nKanal turini tanlang:", self._owner_channel_type_keyboard())
@@ -789,16 +788,11 @@ class BusinessAiBot:
             channel_type = data.split(":", 2)[2]
             if channel_type == "private":
                 self._set_owner_session(user_id, "channel_add_private_forward")
-                text = "🔐 Private/so‘rovli kanal\n\nKanal yoki guruhdan bitta xabarni shu chatga forward qiling. Bot u orqali chatni aniqlaydi."
-            elif channel_type == "url":
-                self._set_owner_session(user_id, "channel_add_url")
-                text = "🌐 Oddiy URL kanal\n\nKanal yoki sahifa havolasini yuboring."
+                text = "🔐 Yopiq kanal qo‘shish\n\nBotni kanalga administrator qilib qo‘shing va o‘sha kanaldan bitta postni shu chatga forward qiling."
             else:
-                state = "channel_add_main" if channel_type == "main" else ("channel_add_required" if channel_type == "required" else "channel_add_public")
-                self._set_owner_session(user_id, state)
-                label = {"main": "asosiy", "required": "majburiy obuna", "public": "ommaviy"}.get(channel_type, channel_type)
-                text = f"📢 {label.title()} kanal\n\nKanal username’i yoki chat ID sini yuboring. Bot kanalga administrator qilib qo‘shilgan bo‘lishi kerak."
-            await self._edit_owner_screen(chat_id, message_id, text, self._owner_channels_keyboard())
+                self._set_owner_session(user_id, "channel_add_public")
+                text = "📢 Ommaviy kanal qo‘shish\n\nKanal username’i yoki ID sini yuboring. Masalan: @kanal_nomi yoki -1001234567890\n\nBot kanalga administrator bo‘lishi shart."
+            await self._edit_owner_screen(chat_id, message_id, text, self._owner_channel_back_keyboard())
             return
         if data == "channel:delete":
             await self._edit_owner_screen(chat_id, message_id, "🗑 O‘chiriladigan kanalni tanlang:", self._owner_channel_delete_keyboard())
@@ -2254,9 +2248,8 @@ Qisqa qo‘llanma (ochish uchun bosing):
             self._clear_owner_session(user_id)
             await self._send_chunks(chat_id, f"✅ {target_id} userning VIP accessi olib tashlandi.", None, reply_to, self._owner_vip_keyboard())
             return True
-        if state in {"channel_add_public", "channel_add_main", "channel_add_required"}:
+        if state == "channel_add_public":
             try:
-                channel_type = {"channel_add_public": "public", "channel_add_main": "main", "channel_add_required": "required"}[state]
                 chat = await self.telegram.get_chat(text)
                 channel_id = str(chat.get("id"))
                 if channel_id == "None":
@@ -2270,29 +2263,17 @@ Qisqa qo‘llanma (ochish uchun bosing):
                         raise ValueError("bot bu kanalda administrator emas")
                 saver = getattr(self.store, "upsert_channel", None)
                 if callable(saver):
-                    saver(channel_id, str(chat.get("title") or chat.get("first_name") or ""), str(chat.get("username") or ""), channel_type, channel_type == "required", channel_type == "main")
+                    saver(channel_id, str(chat.get("title") or chat.get("first_name") or ""), str(chat.get("username") or ""), "public", False, False, "", f"https://t.me/{chat.get('username')}" if chat.get("username") else "")
                 self._clear_owner_session(user_id)
-                await self._send_chunks(chat_id, "✅ Kanal saqlandi. Bot kanalga xabar yuborishi uchun kanalda admin huquqi bo‘lishi kerak.", None, reply_to, self._owner_channels_keyboard())
+                await self._send_chunks(chat_id, "✅ Ommaviy kanal qo‘shildi.", None, reply_to, self._owner_channel_back_keyboard())
             except (TelegramApiError, ValueError) as exc:
-                await self._send_chunks(chat_id, f"❌ Kanal topilmadi yoki saqlanmadi: {exc}", None, reply_to, self._owner_channels_keyboard())
-            return True
-        if state == "channel_add_url":
-            value = text.strip()
-            if not (value.startswith("http://") or value.startswith("https://")):
-                await self._send_chunks(chat_id, "❌ URL http:// yoki https:// bilan boshlanishi kerak.", None, reply_to, self._owner_channels_keyboard())
-                return True
-            channel_id = "url:" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:24]
-            saver = getattr(self.store, "upsert_channel", None)
-            if callable(saver):
-                saver(channel_id, value, "", "url", True, False, "", value)
-            self._clear_owner_session(user_id)
-            await self._send_chunks(chat_id, "✅ Oddiy URL saqlandi.", None, reply_to, self._owner_channels_keyboard())
+                await self._send_chunks(chat_id, f"❌ Kanalni qo‘shib bo‘lmadi: {exc}", None, reply_to, self._owner_channel_back_keyboard())
             return True
         if state == "channel_add_private_forward":
             origin = message.get("forward_origin") or {}
             forwarded_chat = message.get("forward_from_chat") or (origin.get("chat") if isinstance(origin, dict) else {}) or {}
             if not isinstance(forwarded_chat, dict) or not forwarded_chat.get("id"):
-                await self._send_chunks(chat_id, "❌ Kanal yoki guruhdan forward qilingan xabar yuboring.", None, reply_to, self._owner_channels_keyboard())
+                await self._send_chunks(chat_id, "❌ Kanal postini forward qiling.", None, reply_to, self._owner_channel_back_keyboard())
                 return True
             try:
                 get_me = getattr(self.telegram, "get_me", None)
@@ -2303,32 +2284,25 @@ Qisqa qo‘llanma (ochish uchun bosing):
                     if str(member.get("status")) not in {"administrator", "creator"}:
                         raise ValueError("bot yopiq kanalda administrator emas")
             except (TelegramApiError, ValueError) as exc:
-                await self._send_chunks(chat_id, f"❌ Avval botni kanalga administrator qiling: {exc}", None, reply_to, self._owner_channels_keyboard())
+                await self._send_chunks(chat_id, f"❌ Avval botni kanalga administrator qiling: {exc}", None, reply_to, self._owner_channel_back_keyboard())
                 return True
             self._set_owner_session(user_id, "channel_add_private_link", {
                 "chat_id": str(forwarded_chat.get("id")),
                 "title": str(forwarded_chat.get("title") or ""),
                 "username": str(forwarded_chat.get("username") or ""),
             })
-            await self._send_chunks(chat_id, "🔐 Endi shu private kanalning invite linkini yuboring:\nhttps://t.me/+... yoki https://t.me/joinchat/...", None, reply_to, self._owner_channels_keyboard())
+            await self._send_chunks(chat_id, "✅ Kanal aniqlandi. Endi foydalanuvchilar kirishi uchun invite link yuboring:\nhttps://t.me/+... yoki https://t.me/joinchat/...", None, reply_to, self._owner_channel_back_keyboard())
             return True
         if state == "channel_add_private_link":
             value = text.strip()
             if not (value.startswith("https://t.me/+") or value.startswith("https://t.me/joinchat/")):
-                await self._send_chunks(chat_id, "❌ Private kanal invite linki noto‘g‘ri.", None, reply_to, self._owner_channels_keyboard())
+                await self._send_chunks(chat_id, "❌ To‘g‘ri Telegram invite link yuboring.", None, reply_to, self._owner_channel_back_keyboard())
                 return True
             saver = getattr(self.store, "upsert_channel", None)
             if callable(saver):
                 saver(str(data.get("chat_id")), str(data.get("title") or ""), str(data.get("username") or ""), "private", True, False, value, "")
             self._clear_owner_session(user_id)
-            await self._send_chunks(chat_id, "✅ Private kanal saqlandi.", None, reply_to, self._owner_channels_keyboard())
-            return True
-        if state == "channel_delete":
-            deleter = getattr(self.store, "delete_channel", None)
-            if callable(deleter):
-                deleter(text)
-            self._clear_owner_session(user_id)
-            await self._send_chunks(chat_id, "✅ Kanal ro‘yxatdan o‘chirildi.", None, reply_to, self._owner_channels_keyboard())
+            await self._send_chunks(chat_id, "✅ Yopiq kanal majburiy obunaga qo‘shildi.", None, reply_to, self._owner_channel_back_keyboard())
             return True
         if state == "broadcast_one_id":
             try:
@@ -2408,11 +2382,8 @@ Qisqa qo‘llanma (ochish uchun bosing):
 
     def _owner_channel_type_keyboard(self) -> dict[str, Any]:
         return {"inline_keyboard": [
-            [{"text": "📢 Ommaviy kanal", "callback_data": "channel:type:public"}],
-            [{"text": "⭐ Asosiy kanal", "callback_data": "channel:type:main"}],
-            [{"text": "🔐 Majburiy obuna kanali", "callback_data": "channel:type:required"}],
-            [{"text": "🔒 Private/so‘rovli kanal", "callback_data": "channel:type:private"}],
-            [{"text": "🌐 Oddiy URL", "callback_data": "channel:type:url"}],
+            [{"text": "➕ Ommaviy kanal qo‘shish", "callback_data": "channel:type:public"}],
+            [{"text": "🔐 Yopiq kanal qo‘shish", "callback_data": "channel:type:private"}],
             [{"text": "🔙 Kanal boshqaruvi", "callback_data": "owner:channels"}],
         ]}
 
@@ -2423,6 +2394,8 @@ Qisqa qo‘llanma (ochish uchun bosing):
             [{"text": "🗑 Kanalni o‘chirish", "callback_data": "channel:delete"}],
             [{"text": "🔙 Admin panel", "callback_data": "admin:home"}],
         ]}
+    def _owner_channel_back_keyboard(self) -> dict[str, Any]:
+        return {"inline_keyboard": [[{"text": "🔙 Kanal boshqaruvi", "callback_data": "owner:channels"}]]}
     def _owner_channel_delete_keyboard(self) -> dict[str, Any]:
         getter = getattr(self.store, "list_channels", None)
         channels = getter() if callable(getter) else []
