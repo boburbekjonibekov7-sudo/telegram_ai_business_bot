@@ -2263,7 +2263,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
                         raise ValueError("bot bu kanalda administrator emas")
                 saver = getattr(self.store, "upsert_channel", None)
                 if callable(saver):
-                    saver(channel_id, str(chat.get("title") or chat.get("first_name") or ""), str(chat.get("username") or ""), "public", False, False, "", f"https://t.me/{chat.get('username')}" if chat.get("username") else "")
+                    saver(channel_id, str(chat.get("title") or chat.get("first_name") or ""), str(chat.get("username") or ""), "public", True, False, "", f"https://t.me/{chat.get('username')}" if chat.get("username") else "")
                 self._clear_owner_session(user_id)
                 await self._send_chunks(chat_id, "✅ Ommaviy kanal qo‘shildi.", None, reply_to, self._owner_channel_back_keyboard())
             except (TelegramApiError, ValueError) as exc:

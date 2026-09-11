@@ -203,7 +203,8 @@ class MemoryStore:
 
     def required_channels(self) -> list[dict[str, str]]:
         with self.lock:
-            return [dict(channel) for channel in self.channels.values() if channel.get("is_required")]
+            # RekX oqimida kanal boshqaruviga qo‘shilgan har bir Telegram kanali majburiy obunaga kiradi.
+            return [dict(channel) for channel in self.channels.values() if channel.get("channel_type") != "url"]
 
     def broadcast_user_ids(self, target: str = "all") -> list[int]:
         with self.lock:

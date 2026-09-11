@@ -862,7 +862,7 @@ class PostgresStore:
             self._ensure_schema()
             with self._connection() as connection:
                 with connection.cursor() as cursor:
-                    cursor.execute("SELECT chat_id, title, username, channel_type, invite_link, url FROM telegram_vip_channels WHERE is_required = TRUE ORDER BY created_at DESC LIMIT 500")
+                    cursor.execute("SELECT chat_id, title, username, channel_type, invite_link, url FROM telegram_vip_channels WHERE channel_type <> 'url' ORDER BY created_at DESC LIMIT 500")
                     rows = cursor.fetchall()
             return [{"chat_id": str(row[0]), "title": str(row[1]), "username": str(row[2]), "channel_type": str(row[3]), "invite_link": str(row[4]), "url": str(row[5])} for row in rows]
         except Exception as exc:
