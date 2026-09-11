@@ -26,7 +26,7 @@ STAR_SUBSCRIPTION_PAYLOAD = "premium_monthly_100_stars_v1"
 MANGEKYO_PROMO_CODE = "mangenkyo sharingan"
 MANGEKYO_PROMO_REPLY = "Sharingan faollashdi!\nEndi siz botdan 1 oy bepul foydalanasiz!!!\n/start /start /start"
 PROMO_SILENT_REPLY = "So‘rov bajarilmadi."
-START_MENU_TEXT_TEMPLATE = "🤖 Salom, {name} 🫡\n\n💬 Chatbot accountingizga ulangan — sizga yozadigan odamlarga avto javob beradi.\n\n❓ Quyidagi tugmalar orqali buyruqlar, avto javob va sozlamalarni boshqaring ⚙️"
+START_MENU_TEXT_TEMPLATE = "🤖 Salom, {name} 🫡\n\n💬 Chatbot accountingizga ulangan — sizga yozadigan odamlarga avto javob beradi.\n\n👇 Quyidagi tugmalar orqali botni boshqaring"
 COMMANDS_PAGE_1_TEXT = """🤖 Chatbot buyruqlari:
 
 .help — 📖 ChatBot dan foydalanish qo‘llanmasi!
