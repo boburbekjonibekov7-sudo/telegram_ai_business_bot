@@ -70,20 +70,9 @@ _EMOJI_DIGIT_MAP = {str(i): d for i, d in enumerate(["0️⃣", "1️⃣", "2️
 # ".send matn @username 5" — oxiridagi @username va ixtiyoriy soniya ajratib olinadi.
 _SEND_COMMAND_RE = re.compile(r"^(?P<text>.*?)\s+@(?P<username>[A-Za-z0-9_]{5,})(?:\s+(?P<delay>\d+))?\s*$")
 VIP_FEATURES_TEXT = """📩 Avto javoblar: 100 ta
-🤖 AI avto javob (kunlik): 500 ta
-🧠 «.ai» savol (kunlik): 100 ta
-🖼 «.img» / «.rasm» (kunlik): 5 ta
-
-✅ Bepuldagi hamma narsa
-🕔 Profilga soat qo'yish
-🟢 24/7 online rejimi
-✍️ «.ok» / «.loc» uchun maxsus so'z
-💬 Hammaga AI avto javob berish
-🎨 Avto javobga rasm/sticker/ovoz/video/gif
-🔗 <<.img>>, <<.rasm>>, <<.story>>
 
 VIP 💎 obuna (cheklovlarsiz)"""
-BOT_ABOUT_TEXT = "Bot haqida 🤖\n\n• Telegram Business va Chat Automation chatlariga AI javob beradi.\n• Business chatda yuborilgan APK fayllarni avtomatik o‘chirishni qo‘llab-quvvatlaydi.\n\nVIP 💎 imkoniyatlari:\n• Oyiga 100 Telegram Stars evaziga 30 kunlik access.\n• Shaxsiy AI chat va shaxsiy rol sozlamalari.\n• Kengaytirilgan admin panel va pause boshqaruvi.\n• To‘lovdan keyin VIP funksiyalar avtomatik ochiladi."
+BOT_ABOUT_TEXT = "Bot haqida 🤖\n\n• Telegram Business va Chat Automation uchun avto javoblar.\n• Business chatda yuborilgan APK fayllarni avtomatik o‘chirish.\n\nVIP 💎 obunasi oyiga 100 Telegram Stars evaziga 30 kun amal qiladi."
 VIP_LABEL = "VIP"
 MEDIA_SLOTS = {
     "start": ("start_media_file_id", "start_media_type", "Start rasmi", "photo"),
@@ -1097,8 +1086,8 @@ class BusinessAiBot:
             return
         try:
             link = await self.telegram.create_invoice_link(
-                "VIP AI — 1 oy",
-                "AI chat, shaxsiy rol va VIP funksiyalar. Obuna 30 kun amal qiladi.",
+                "VIP — 1 oy",
+                "VIP avto javob funksiyalari. Obuna 30 kun amal qiladi.",
                 STAR_SUBSCRIPTION_PAYLOAD,
                 STAR_SUBSCRIPTION_AMOUNT,
                 STAR_SUBSCRIPTION_PERIOD_SECONDS,
@@ -1118,9 +1107,9 @@ class BusinessAiBot:
         active = self._has_premium(user_id)
         if active and until:
             remaining_days = max(1, int((until - time.time()) / 86400))
-            text = f"⭐ VIP faol. Qolgan muddat: taxminan {remaining_days} kun.\n\nShaxsiy AI rolingizni /rol orqali sozlashingiz mumkin."
+            text = f"⭐ VIP faol. Qolgan muddat: taxminan {remaining_days} kun."
         else:
-            text = "⭐ VIP faol emas. Oylik 100 Stars obunasi bilan AI chat, shaxsiy rol va boshqa VIP funksiyalarni oching."
+            text = "⭐ VIP faol emas. Oylik 100 Stars obunasi bilan VIP avto javob funksiyalarini oching."
         return text, self._premium_keyboard(active)
 
     async def _send_premium_panel(self, chat_id: int, user_id: int | None, reply_to: int | None) -> None:
@@ -1145,16 +1134,16 @@ class BusinessAiBot:
         if is_owner:
             plan = "Owner ∞"
             expiry = "∞"
-            limits = "📩 Avto javoblar: ∞\n🤖 AI avto javob (kunlik): ∞\n🧠 «.ai» savol (kunlik): ∞\n🖼 «.img» / «.rasm» (kunlik): ∞"
+            limits = "📩 Avto javoblar: ∞"
         elif active:
             plan = "VIP 💎"
             until = self._premium_until(user_id)
             expiry = time.strftime("%Y-%m-%d", time.localtime(until)) if until else "—"
-            limits = "📩 Avto javoblar: 100 ta\n🤖 AI avto javob (kunlik): 500 ta\n🧠 «.ai» savol (kunlik): 100 ta\n🖼 «.img» / «.rasm» (kunlik): 5 ta"
+            limits = "📩 Avto javoblar: 100 ta"
         else:
             plan = "Bepul"
             expiry = "—"
-            limits = "💬 Avto javoblar: 0/5\n🤖 AI avto javob (bugun): 0/500\n🧠 AI javob limiti: 25"
+            limits = "💬 Avto javoblar: 0/5"
         return f"👤 Profil:\n\n👑 Tarifingiz: {plan}\n⏰ Tarif tugashi: {expiry}\n\n{limits}"
 
     @staticmethod

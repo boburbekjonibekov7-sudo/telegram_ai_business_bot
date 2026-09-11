@@ -645,9 +645,9 @@ class AdminPanelAndApkTests(unittest.TestCase):
         text = bot.telegram.sent[-1]["text"]
         self.assertIn("Tarifingiz: VIP 💎", text)
         self.assertIn("📩 Avto javoblar: 100 ta", text)
-        self.assertIn("🤖 AI avto javob (kunlik): 500 ta", text)
-        self.assertIn("🧠 «.ai» savol (kunlik): 100 ta", text)
-        self.assertIn("🖼 «.img» / «.rasm» (kunlik): 5 ta", text)
+        self.assertNotIn("AI avto javob", text)
+        self.assertNotIn(".ai", text)
+        self.assertNotIn(".img", text)
         self.assertNotIn("Tarifingiz: Bepul", text)
 
     def test_owner_profile_shows_unlimited_limits(self) -> None:
@@ -656,7 +656,7 @@ class AdminPanelAndApkTests(unittest.TestCase):
         asyncio.run(bot.process_update({"callback_query": {"id": "owner-profile", "from": owner, "data": "menu:profile", "message": {"chat": {"id": 8645314130}, "message_id": 10}}}))
         text = bot.telegram.sent[-1]["text"]
         self.assertIn("Tarifingiz: Owner ∞", text)
-        self.assertEqual(text.count("∞"), 6)
+        self.assertEqual(text.count("∞"), 3)
         self.assertNotIn("Tarifingiz: Bepul", text)
 
     def test_profile_removes_balance_referral_and_replaces_tariffs_with_vip(self) -> None:
@@ -678,9 +678,9 @@ class AdminPanelAndApkTests(unittest.TestCase):
         asyncio.run(bot.process_update({"callback_query": {"id": "vip-profile", "from": user, "data": "profile:vip", "message": {"chat": {"id": 1255}, "message_id": 10}}}))
         screen = bot.telegram.sent[-1]
         self.assertIn("📩 Avto javoblar: 100 ta", screen["text"])
-        self.assertIn("🤖 AI avto javob (kunlik): 500 ta", screen["text"])
-        self.assertIn("🧠 «.ai» savol (kunlik): 100 ta", screen["text"])
-        self.assertIn("🖼 «.img» / «.rasm» (kunlik): 5 ta", screen["text"])
+        self.assertNotIn("AI avto javob", screen["text"])
+        self.assertNotIn(".ai", screen["text"])
+        self.assertNotIn(".img", screen["text"])
         self.assertIn("VIP 💎 obuna (cheklovlarsiz)", screen["text"])
         self.assertEqual(screen["reply_markup"]["inline_keyboard"][0][0]["callback_data"], "premium:buy")
 
