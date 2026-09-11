@@ -4,6 +4,8 @@ import asyncio
 import json
 import logging
 import os
+import urllib.parse
+import urllib.request
 from typing import Any
 
 from app import BusinessAiBot
@@ -77,6 +79,41 @@ def _expected_webhook_path() -> str:
     return f"/webhook/{secret}" if secret else "/webhook"
 
 
+async def _ensure_telegram_webhook() -> bool:
+    """Configure Telegram from Vercel secrets without exposing them to the client."""
+    token = (os.getenv("BOT_TOKEN") or "").strip()
+    secret = (os.getenv("WEBHOOK_SECRET") or "").strip()
+    if not token or not secret:
+        LOGGER.error("Webhook auto-setup skipped: BOT_TOKEN yoki WEBHOOK_SECRET yo‘q")
+        return False
+    base_url = (os.getenv("PUBLIC_WEBHOOK_BASE_URL") or "https://aichat-boburbekjonibekov7-sudos-projects.vercel.app").rstrip("/")
+    webhook_url = f"{base_url}{_expected_webhook_path()}"
+    payload = urllib.parse.urlencode({
+        "url": webhook_url,
+        "secret_token": secret,
+        "allowed_updates": json.dumps(["message", "business_message", "edited_business_message", "deleted_business_messages", "callback_query"]),
+    }).encode("utf-8")
+
+    def _request() -> dict[str, Any]:
+        request = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/setWebhook",
+            data=payload,
+            method="POST",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        with urllib.request.urlopen(request, timeout=12) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    try:
+        result = await asyncio.to_thread(_request)
+        ok = bool(result.get("ok"))
+        LOGGER.info("Telegram webhook auto-setup: ok=%s", ok)
+        return ok
+    except Exception:
+        LOGGER.exception("Telegram webhook auto-setup failed")
+        return False
+
+
 async def app(scope, receive, send):
     if scope.get("type") != "http":
         return
@@ -85,6 +122,7 @@ async def app(scope, receive, send):
     method = scope.get("method", "GET").upper()
 
     if method == "GET":
+        await _ensure_telegram_webhook()
         await _send_response(send, 200, "Telegram AI bot webhook is running")
         return
     if method != "POST":
