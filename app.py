@@ -106,7 +106,8 @@ class BusinessAiBot:
     def __init__(self, settings: Settings, store: Any | None = None):
         self.settings = settings
         self.telegram = TelegramBotApi(settings.bot_token)
-        self.ai = AIService(settings)
+        # AI providers are disabled. The bot responds only through configured auto replies.
+        self.ai = None
         # Loyiha egasining Telegram ID'si — .env dagi ADMIN_USER_ID orqali
         # sozlanadi (config.py). Avval bu qiymat kodga hardcoded qilingan edi
         # (OWNER_ADMIN_ID doim 8645314130), shu sabab ADMIN_USER_ID o'zgaruvchisi
@@ -668,7 +669,17 @@ class BusinessAiBot:
                 if isinstance(custom_reply, dict):
                     # Avto javob va xabar ichidagi trigger bu rebuildda doim faol.
                     reply_to = message.get("message_id")
+                    if is_business:
+                        try:
+                            await self.telegram.send_typing(chat_id, business_connection_id)
+                        except TelegramApiError as exc:
+                            LOGGER.warning("Typing action yuborilmadi: %s", exc)
                     await self._send_chunks(chat_id, self._with_time_signature(reply_owner_id, str(custom_reply.get("response") or "")), business_connection_id, reply_to)
+                    if is_business and isinstance(message.get("message_id"), int):
+                        try:
+                            await self.telegram.read_business_message(business_connection_id, message["message_id"])
+                        except TelegramApiError as exc:
+                            LOGGER.warning("Business xabarini o‘qilgan deb belgilab bo‘lmadi: %s", exc)
                     if is_business and custom_reply.get("reply_to_owner") and isinstance(business_owner_id, int):
                         await self._send_chunks(business_owner_id, f"📩 Avto javob yuborildi.\n\nTrigger: {custom_reply.get('trigger')}\nJavob: {custom_reply.get('response')}", None, None)
                     return
@@ -684,48 +695,8 @@ class BusinessAiBot:
                 )
                 return
 
-            history = self.store.history(
-                storage_key,
-                self._effective_system_prompt(
-                    user_id if not is_business else business_owner_id,
-                    business_connection_id if is_business else None,
-                ),
-            )
-            history.append({"role": "user", "content": text})
-            try:
-                try:
-                    await self.telegram.send_typing(chat_id, business_connection_id)
-                except TelegramApiError as exc:
-                    # Typing is cosmetic; a Telegram limitation must not block the AI reply.
-                    LOGGER.warning("Typing action yuborilmadi, AI javobi davom etadi: %s", exc)
-                answer, provider_name = await self.ai.answer(history)
-            except ProviderError as exc:
-                LOGGER.error("AI javobini tayyorlashda xato: %s", exc)
-                if self.settings.send_error_message:
-                    await self._send_chunks(
-                        chat_id,
-                        "Hozircha javob tayyorlashda texnik muammo yuz berdi. Keyinroq yana yozib ko‘ring.",
-                        business_connection_id,
-                        message.get("message_id"),
-                    )
-                return
-
-            self.store.append(storage_key, "user", text)
-            self.store.append(storage_key, "assistant", answer)
-            LOGGER.info("Javob yuborildi: chat_id=%s provider=%s", chat_id, provider_name)
-            await self._send_chunks(
-                chat_id,
-                self._with_time_signature(reply_owner_id, answer),
-                business_connection_id,
-                message.get("message_id"),
-            )
-            if is_business and isinstance(business_owner_id, int):
-                read_method = getattr(self.telegram, "read_business_message", None)
-                if callable(read_method) and isinstance(message.get("message_id"), int):
-                    try:
-                        await read_method(business_connection_id, message["message_id"])
-                    except TelegramApiError as exc:
-                        LOGGER.warning("Business xabarini o‘qilgan deb belgilab bo‘lmadi: %s", exc)
+            LOGGER.info("AI o‘chirilgan; mos avto-javob topilmadi: chat_id=%s", chat_id)
+            return
 
     def _with_time_signature(self, owner_id: int | None, text: str) -> str:
         """.soat yoqilgan bo‘lsa, avto/AI javobga «— HH:MM» vaqt belgisini qo‘shadi."""
@@ -2044,14 +2015,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
         elif command == "checklist":
             await self._handle_checklist_command(chat_id, argument, connection_id, reply_to)
         elif command == "ai":
-            if not argument:
-                await self._send_chunks(chat_id, "🤖 .ai dan keyin savol yozing.", connection_id, reply_to)
-            else:
-                try:
-                    answer, _provider = await self.ai.answer([{"role": "user", "content": argument}])
-                    await self._send_chunks(chat_id, answer, connection_id, reply_to)
-                except ProviderError:
-                    await self._send_chunks(chat_id, "AI javobini tayyorlab bo‘lmadi.", connection_id, reply_to)
+            await self._send_chunks(chat_id, "AI funksiyasi o‘chirilgan. Faqat avto javoblar ishlaydi.", connection_id, reply_to)
         elif command == "emoji":
             await self._send_chunks(chat_id, self._premium_emoji_text(argument) if argument else "🌟 .emoji dan keyin matn kiriting.", connection_id, reply_to)
         elif command == "dice":

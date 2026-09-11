@@ -56,21 +56,12 @@ class Settings:
         if not bot_token:
             raise ValueError("BOT_TOKEN .env faylida ko‘rsatilmagan")
 
-        provider = os.getenv("AI_PROVIDER", "openai").strip().lower()
-        if provider not in {"auto", "openai", "qwen", "manus"}:
-            raise ValueError("AI_PROVIDER faqat auto, openai, qwen yoki manus bo‘lishi kerak")
+        # AI providers are intentionally disabled; this bot now uses only auto replies.
+        provider = "disabled"
 
         openai_key = os.getenv("OPENAI_API_KEY", "").strip()
         qwen_key = os.getenv("QWEN_API_KEY", os.getenv("DASHSCOPE_API_KEY", "")).strip()
         manus_key = os.getenv("MANUS_API_KEY", "").strip()
-        if not openai_key and not qwen_key and not manus_key:
-            raise ValueError("OPENAI_API_KEY, QWEN_API_KEY yoki MANUS_API_KEY dan kamida bittasi kerak")
-        if provider == "openai" and not openai_key:
-            raise ValueError("AI_PROVIDER=openai, ammo OPENAI_API_KEY mavjud emas")
-        if provider == "qwen" and not qwen_key:
-            raise ValueError("AI_PROVIDER=qwen, ammo QWEN_API_KEY/DASHSCOPE_API_KEY mavjud emas")
-        if provider == "manus" and not manus_key:
-            raise ValueError("AI_PROVIDER=manus, ammo MANUS_API_KEY mavjud emas")
 
         data_dir = Path(os.getenv("DATA_DIR", "data")).expanduser()
 

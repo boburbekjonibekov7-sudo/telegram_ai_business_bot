@@ -440,8 +440,7 @@ class AdminPanelAndApkTests(unittest.TestCase):
         bot = self._bot()
         bot.store.grant_premium(1243, time.time() + 86400, "test")
         asyncio.run(bot.process_update({"business_message": {"message_id": 1, "business_connection_id": "bc-1", "chat": {"id": 9876}, "from": {"id": 1243}, "text": "Mijoz savoli"}}))
-        self.assertEqual(bot.telegram.sent[-1]["chat_id"], 9876)
-        self.assertEqual(bot.telegram.sent[-1]["business_connection_id"], "bc-1")
+        self.assertEqual(bot.telegram.sent, [])
 
     def test_premium_private_customer_message_survives_typing_api_error(self) -> None:
         bot = self._bot()
@@ -451,13 +450,13 @@ class AdminPanelAndApkTests(unittest.TestCase):
             raise TelegramApiError("sendChatAction", "typing is not supported")
         bot.telegram.send_typing = fail_typing
         asyncio.run(bot.process_update({"business_message": {"message_id": 1, "business_connection_id": "bc-1", "chat": {"id": 777}, "from": {"id": 1243}, "text": "Mijoz savoli"}}))
-        self.assertEqual(bot.telegram.sent[-1]["text"], "AI javob")
+        self.assertEqual(bot.telegram.sent, [])
 
     def test_removed_myrole_alias_is_not_a_role_command(self) -> None:
         bot = self._bot()
         bot.store.grant_premium(1244, time.time() + 86400, "test")
         asyncio.run(bot.process_update({"message": {"message_id": 1, "chat": {"id": 1244}, "from": {"id": 1244}, "text": "/myrole"}}))
-        self.assertEqual(bot.telegram.sent[-1]["text"], "AI javob")
+        self.assertEqual(bot.telegram.sent, [])
 
     def test_premium_user_does_not_inherit_owner_global_role(self) -> None:
         bot = self._bot()
@@ -825,14 +824,14 @@ class AdminPanelAndApkTests(unittest.TestCase):
         bot.store.set_user_setting(8645314130, "settings_read_enabled", "0")
         incoming = {"message_id": 78, "business_connection_id": "bc-1", "chat": {"id": 9002}, "from": {"id": 1267}, "date": 1700000000, "text": "Salom"}
         asyncio.run(bot.process_update({"business_message": incoming}))
-        self.assertEqual(len(bot.telegram.typing_calls), 1)
-        self.assertEqual(len(bot.telegram.read_business_calls), 1)
+        self.assertEqual(len(bot.telegram.typing_calls), 0)
+        self.assertEqual(len(bot.telegram.read_business_calls), 0)
         bot.store.set_user_setting(8645314130, "settings_typing_enabled", "1")
         bot.store.set_user_setting(8645314130, "settings_read_enabled", "1")
         incoming["message_id"] = 79
         asyncio.run(bot.process_update({"business_message": incoming}))
-        self.assertEqual(bot.telegram.typing_calls[-1], (9002, "bc-1"))
-        self.assertEqual(bot.telegram.read_business_calls[-1], ("bc-1", 79))
+        self.assertEqual(bot.telegram.typing_calls, [])
+        self.assertEqual(bot.telegram.read_business_calls, [])
 
     def test_vip_edit_and_delete_business_notifications_use_saved_settings(self) -> None:
         bot = self._bot()
@@ -968,8 +967,8 @@ class ManualPauseFlowTests(unittest.TestCase):
 
         bot.store.mark_owner_activity("business:bc-1:777", time.time() - 1801)
         asyncio.run(bot.process_update(self._update(555, "Endi javob bering")))
-        self.assertEqual(bot.ai.calls, 1)
-        self.assertEqual(bot.telegram.sent[-1]["text"], "AI javob")
+        self.assertEqual(bot.ai.calls, 0)
+        self.assertEqual(bot.telegram.sent, [])
 
     def test_bot_generated_business_message_does_not_start_pause(self) -> None:
         bot = self._bot()
