@@ -610,8 +610,7 @@ class AdminPanelAndApkTests(unittest.TestCase):
         asyncio.run(bot.process_update({"callback_query": {"id": "auto-list", "from": user, "data": "menu:auto_replies", "message": base}}))
         self.assertNotIn("Buyruqlar ruxsati", bot.telegram.edited_media[-1]["caption"])
         asyncio.run(bot.process_update({"callback_query": {"id": "auto-help-off", "from": user, "data": "auto:toggle:help", "message": base}}))
-        self.assertEqual(bot.store.get_user_setting(1255, "auto_reply_help_permission"), "none")
-        self.assertEqual(bot.telegram.callback_answers[-1], ("auto-help-off", ".help buyrug‘i: Hech kim ✅", True))
+        self.assertEqual(bot.store.get_user_setting(1255, "auto_reply_help_permission"), "")
         self.assertNotIn("Buyruqlar ruxsati", bot.telegram.edited_media[-1]["caption"])
 
     def test_profile_auto_replies_settings_media_callbacks_edit_one_message(self) -> None:
@@ -1054,10 +1053,9 @@ class AutoReplyCrudTests(unittest.TestCase):
         user = {"id": 1271}
         base = {"chat": {"id": 1271}, "message_id": 10}
         asyncio.run(bot.process_update({"callback_query": {"id": "perm-off", "from": user, "data": "auto:toggle:ping", "message": base}}))
-        self.assertEqual(bot.store.get_user_setting(1271, "auto_reply_ping_permission"), "none")
+        self.assertEqual(bot.store.get_user_setting(1271, "auto_reply_ping_permission"), "")
         asyncio.run(bot.process_update({"callback_query": {"id": "perm-on", "from": user, "data": "auto:toggle:ping", "message": base}}))
-        self.assertEqual(bot.store.get_user_setting(1271, "auto_reply_ping_permission"), "all")
-        self.assertEqual(bot.telegram.callback_answers[-1], ("perm-on", ".ping buyrug‘i: Hamma ✅", True))
+        self.assertEqual(bot.store.get_user_setting(1271, "auto_reply_ping_permission"), "")
 
     def test_auto_reply_detail_toggles_and_exact_trigger_options(self) -> None:
         bot = self._bot()

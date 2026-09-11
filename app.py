@@ -772,7 +772,7 @@ class BusinessAiBot:
             "settings:edit:toggle", "settings:edit:time", "settings:delete:toggle", "settings:delete:time",
             "settings:apk", "settings:typing", "settings:read", "settings:currency",
         }
-        if data not in toggle_callbacks and not data.startswith("auto:toggle:"):
+        if data not in toggle_callbacks:
             await self.telegram.answer_callback_query(callback_id)
         if not isinstance(chat_id, int) or not isinstance(message_id, int):
             return
@@ -988,9 +988,6 @@ class BusinessAiBot:
             self._set_user_session(user_id, "auto_add_trigger")
             await self._render_media_or_text(chat_id, "➕ Avto javob qo‘shish\n\nTrigger so‘z yoki iborani yuboring. Bekor qilish: /cancel", self._auto_reply_back_keyboard(), "start", message_id, business_connection_id=business_connection_id)
             return
-        if data == "auto:permissions":
-            await self._render_media_or_text(chat_id, self._auto_permissions_text(user_id), self._auto_permissions_keyboard(), "start", message_id, business_connection_id=business_connection_id)
-            return
         if data.startswith("auto:view:"):
             record_id = self._parse_record_id(data)
             record = self._get_auto_reply(user_id, record_id) if record_id is not None else None
@@ -1035,19 +1032,6 @@ class BusinessAiBot:
                 return
             self._set_user_session(user_id, "auto_edit", {"record_id": record_id})
             await self._render_media_or_text(chat_id, "✏️ Avto javobni tahrirlash\n\nYangi trigger va javobni quyidagi ko‘rinishda yuboring:\ntrigger | javob\n\nBekor qilish: /cancel", self._auto_reply_back_keyboard(), "start", message_id, business_connection_id=business_connection_id)
-            return
-        if data.startswith("auto:toggle:"):
-            command = data.rsplit(":", 1)[-1]
-            if command not in AUTO_REPLY_COMMANDS:
-                return
-            key = f"auto_reply_{command}_permission"
-            current = self._user_setting(user_id, key, "all")
-            enabled_for_all = current != "all"
-            self._set_user_setting(user_id, key, "all" if enabled_for_all else "none")
-            status = "Hamma" if enabled_for_all else "Hech kim"
-            self._set_user_setting(user_id, "auto_reply_notice", f"✅ .{command} endi {status} uchun ishlaydi.")
-            await self.telegram.answer_callback_query(callback_id, f".{command} buyrug‘i: {status} ✅", True)
-            await self._render_media_or_text(chat_id, self._auto_replies_text(user_id), self._auto_replies_keyboard(user_id), "start", message_id, business_connection_id=business_connection_id)
             return
         if data == "menu:about":
             await self._render_media_or_text(chat_id, BOT_ABOUT_TEXT, self._about_keyboard(), "start", message_id, business_connection_id=business_connection_id)
