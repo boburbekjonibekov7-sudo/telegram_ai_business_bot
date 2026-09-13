@@ -671,7 +671,7 @@ class PostgresStore:
                     row = cursor.fetchone()
                     if not row:
                         cursor.execute(
-                            "SELECT id, user_id, trigger, response, enabled, reply_in_message, reply_to_owner FROM telegram_auto_replies WHERE user_id = %s AND LOWER(%s) LIKE '%' || LOWER(trigger) || '%' ORDER BY LENGTH(trigger) DESC LIMIT 1",
+                            "SELECT id, user_id, trigger, response, enabled, reply_in_message, reply_to_owner FROM telegram_auto_replies WHERE user_id = %s AND LOWER(%s::text) LIKE '%%' || LOWER(trigger) || '%%' ORDER BY LENGTH(trigger) DESC LIMIT 1",
                             (user_id, trigger),
                         )
                         row = cursor.fetchone()
@@ -713,7 +713,7 @@ class PostgresStore:
             self._ensure_schema()
             with self._connection() as connection:
                 with connection.cursor() as cursor:
-                    cursor.execute("SELECT preferences ->> %s FROM telegram_user_settings WHERE user_id = %s LIMIT 1", (str(key), user_id))
+                    cursor.execute("SELECT preferences ->> %s::text FROM telegram_user_settings WHERE user_id = %s LIMIT 1", (str(key), user_id))
                     row = cursor.fetchone()
             return str(row[0]) if row and row[0] is not None else default
         except Exception as exc:
@@ -728,9 +728,9 @@ class PostgresStore:
                     cursor.execute(
                         """
                         INSERT INTO telegram_user_settings (user_id, preferences)
-                        VALUES (%s, jsonb_build_object(%s, %s))
+                        VALUES (%s, jsonb_build_object(%s::text, %s::text))
                         ON CONFLICT (user_id) DO UPDATE SET
-                            preferences = telegram_user_settings.preferences || jsonb_build_object(%s, %s),
+                            preferences = telegram_user_settings.preferences || jsonb_build_object(%s::text, %s::text),
                             updated_at = NOW()
                         """,
                         (user_id, str(key), str(value), str(key), str(value)),

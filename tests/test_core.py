@@ -101,6 +101,11 @@ class PostgresSelectionTests(unittest.TestCase):
         self.assertEqual(PostgresStore._parts("normal:123"), ("__normal__", 123))
         self.assertEqual(PostgresStore._parts("business:connection:456"), ("connection", 456))
 
+    def test_psycopg_sql_escapes_like_wildcards_and_casts_json_values(self) -> None:
+        source = Path(PostgresStore.__module__.replace(".", "/") + ".py").read_text()
+        self.assertIn("LIKE '%%' || LOWER(trigger) || '%%'", source)
+        self.assertIn("jsonb_build_object(%s::text, %s::text)", source)
+
 
 class PauseStoreTests(unittest.TestCase):
     def test_upstash_pause_uses_ttl_and_calculates_remaining(self) -> None:
