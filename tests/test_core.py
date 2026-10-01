@@ -858,6 +858,34 @@ class AdminPanelAndApkTests(unittest.TestCase):
         self.assertIn("o‘chirdi", bot.telegram.sent[-1]["text"])
         self.assertIn("Salom, narxi qanchaligini ayta olasizmi?", bot.telegram.sent[-1]["text"])
 
+    def test_business_notifications_mention_the_exact_sender(self) -> None:
+        bot = self._bot()
+        owner_id = 8645314130
+        bot.store.set_user_setting(owner_id, "edit_notify_enabled", "1")
+        bot.store.set_user_setting(owner_id, "edit_notify_destination", "bot")
+        incoming = {
+            "message_id": 88,
+            "business_connection_id": "bc-1",
+            "chat": {"id": 9003},
+            "from": {"id": 1264, "first_name": "Ali & <A>"},
+            "date": 1700000000,
+            "text": "Salom <b>test</b>",
+        }
+        asyncio.run(bot.process_update({"business_message": incoming}))
+        edited = {
+            "message_id": 88,
+            "business_connection_id": "bc-1",
+            "chat": {"id": 9003},
+            "from": {"id": 1264, "first_name": "Ali & <A>"},
+            "edit_date": 1700000060,
+            "text": "Yangilangan & matn",
+        }
+        asyncio.run(bot.process_update({"edited_business_message": edited}))
+        sent = bot.telegram.sent[-1]
+        self.assertEqual(sent.get("parse_mode"), "HTML")
+        self.assertIn('<a href="tg://user?id=1264">Ali &amp; &lt;A&gt;</a>', sent["text"])
+        self.assertIn("Salom &lt;b&gt;test&lt;/b&gt;", sent["text"])
+
     def test_required_subscription_keyboard_is_numbered(self) -> None:
         bot = self._bot()
         channels = [

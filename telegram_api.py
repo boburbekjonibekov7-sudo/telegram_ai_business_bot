@@ -427,6 +427,7 @@ class TelegramBotApi:
         business_connection_id: str | None = None,
         reply_to_message_id: int | None = None,
         reply_markup: dict[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "chat_id": chat_id,
@@ -442,4 +443,6 @@ class TelegramBotApi:
             }
         if reply_markup is not None:
             payload["reply_markup"] = reply_markup
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
         return await self.call("sendMessage", payload)

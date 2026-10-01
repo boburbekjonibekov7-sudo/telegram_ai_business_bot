@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
 import os
@@ -220,9 +221,9 @@ class BusinessAiBot:
 
     async def _send_event_notice(self, owner_id: int, connection_id: str, chat_id: int, text: str, destination: str) -> None:
         if destination == "chat":
-            await self._send_chunks(chat_id, text, connection_id, None)
+            await self._send_chunks(chat_id, text, connection_id, None, parse_mode="HTML")
         else:
-            await self._send_chunks(owner_id, text, None, None)
+            await self._send_chunks(owner_id, text, None, None, parse_mode="HTML")
 
     async def _handle_edited_business_message(self, message: dict[str, Any]) -> None:
         connection_id = str(message.get("business_connection_id") or "")
@@ -239,8 +240,8 @@ class BusinessAiBot:
         old_text = str(cached.get("text") or "(oldingi xabar matni mavjud emas)")
         new_text = self._message_text(message) or "(matnsiz xabar)"
         editor = (message.get("from") or {})
-        mention = self._sender_label(editor, cached)
-        notice = f"👤 {mention} suhbatdoshingiz xabarini tahrirladi ✏️\n\n💬 Avval:\n{old_text}\n\n✏️ Keyin:\n{new_text}"
+        mention = self._sender_mention_html(editor, cached)
+        notice = f"👤 {mention} suhbatdoshingiz xabarini tahrirladi ✏️\n\n💬 Avval:\n{html.escape(old_text)}\n\n✏️ Keyin:\n{html.escape(new_text)}"
         notice += f"\n\n🕔 Yuborilgan vaqt: {self._event_time(cached.get('date'))}\n🕔 Tahrirlangan vaqt: {self._event_time(message.get('edit_date'))}"
         await self._send_event_notice(owner_id, connection_id, chat_id, notice, "bot")
         self._remember_business_message(owner_id, message)
@@ -261,8 +262,8 @@ class BusinessAiBot:
             if cached.get("sender_id") == owner_id:
                 continue
             old_text = str(cached.get("text") or "(o‘chirilgan xabar matni mavjud emas)")
-            mention = self._sender_label({}, cached)
-            notice = f"👤 {mention} suhbatdoshingiz xabarini o‘chirdi 🗑\n\n💬 Avval:\n{old_text}\n\n🗑 Keyin: xabar o‘chirildi"
+            mention = self._sender_mention_html({}, cached)
+            notice = f"👤 {mention} suhbatdoshingiz xabarini o‘chirdi 🗑\n\n💬 Avval:\n{html.escape(old_text)}\n\n🗑 Keyin: xabar o‘chirildi"
             notice += f"\n\n🕔 Yuborilgan vaqt: {self._event_time(cached.get('date'))}\n🕔 O‘chirilgan vaqt: {self._event_time(update.get('date'))}"
             await self._send_event_notice(owner_id, connection_id, chat_id, notice, "bot")
             self._forget_business_message(owner_id, connection_id, chat_id, raw_message_id)
@@ -326,6 +327,16 @@ class BusinessAiBot:
             return full_name
         sender_id = sender.get("id") or cached.get("sender_id")
         return f"foydalanuvchi ({sender_id})" if sender_id else "noma’lum foydalanuvchi"
+
+    @classmethod
+    def _sender_mention_html(cls, sender: dict[str, Any], cached: dict[str, Any] | None = None) -> str:
+        """Return a clickable Telegram mention for a known sender."""
+        cached = cached or {}
+        sender_id = sender.get("id") or cached.get("sender_id")
+        label = html.escape(cls._sender_label(sender, cached), quote=False)
+        if isinstance(sender_id, int):
+            return f'<a href="tg://user?id={sender_id}">{label}</a>'
+        return label
 
     def _message_cache(self, owner_id: int) -> dict[str, dict[str, Any]]:
         raw = self._user_setting(owner_id, "business_message_cache", "{}")
@@ -1826,6 +1837,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
         business_connection_id: str | None,
         reply_to_message_id: int | None,
         reply_markup: dict[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> None:
         chunks = [text[i : i + 4000] for i in range(0, len(text), 4000)] or ["…"]
         for index, chunk in enumerate(chunks):
@@ -1835,6 +1847,7 @@ Qisqa qo‘llanma (ochish uchun bosing):
                 business_connection_id=business_connection_id,
                 reply_to_message_id=reply_to_message_id if index == 0 else None,
                 reply_markup=reply_markup if index == 0 else None,
+                parse_mode=parse_mode,
             )
 
 
